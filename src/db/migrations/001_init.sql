@@ -90,7 +90,7 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TABLE IF NOT EXISTS product_vectors (
   product_id uuid PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
-  embedding vector(3072) NOT NULL,
+  embedding vector(1536) NOT NULL,
   embedding_model text NOT NULL,
   embedded_text text NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT NOW()

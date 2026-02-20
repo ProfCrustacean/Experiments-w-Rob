@@ -5,7 +5,7 @@ import { __test_only_ensureVectorLength } from "../src/pipeline/run.js";
 
 describe("embedding", () => {
   it("creates one vector per product with expected dimension", async () => {
-    const provider = new FallbackProvider(3072);
+    const provider = new FallbackProvider(1536);
     const items = [
       { sourceSku: "sku-1", text: "titulo: caderno a4 pautado" },
       { sourceSku: "sku-2", text: "titulo: caneta gel azul" },
@@ -13,7 +13,7 @@ describe("embedding", () => {
 
     const vectorsBySku = await generateEmbeddingsForItems(items, provider, 2, 1);
     expect(vectorsBySku.size).toBe(2);
-    expect(vectorsBySku.get("sku-1")?.length).toBe(3072);
+    expect(vectorsBySku.get("sku-1")?.length).toBe(1536);
   });
 
   it("pads vectors to the target size", () => {

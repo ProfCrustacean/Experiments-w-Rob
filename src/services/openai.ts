@@ -59,6 +59,7 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
     const response = await this.client.embeddings.create({
       model: this.embeddingModel,
       input: texts,
+      dimensions: this.dimensions,
     });
 
     return response.data

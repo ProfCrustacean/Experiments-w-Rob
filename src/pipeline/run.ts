@@ -25,6 +25,8 @@ import { writeQAReport } from "./qa-report.js";
 import { FallbackProvider } from "../services/fallback.js";
 import { OpenAIProvider } from "../services/openai.js";
 
+const EMBEDDING_DIMENSIONS = 1536;
+
 interface RunPipelineInput {
   inputPath: string;
   storeId: string;
@@ -55,7 +57,7 @@ function createProviders(): {
       apiKey: config.OPENAI_API_KEY,
       llmModel: config.LLM_MODEL,
       embeddingModel: config.EMBEDDING_MODEL,
-      dimensions: 3072,
+      dimensions: EMBEDDING_DIMENSIONS,
     });
 
     return {
@@ -65,7 +67,7 @@ function createProviders(): {
     };
   }
 
-  const fallback = new FallbackProvider(3072);
+  const fallback = new FallbackProvider(EMBEDDING_DIMENSIONS);
   return {
     embeddingProvider: fallback,
     llmProvider: fallback,
@@ -181,7 +183,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
 
     const vectorsBySku = new Map<string, number[]>();
     for (const [sku, vector] of rawVectors.entries()) {
-      vectorsBySku.set(sku, ensureVectorLength(vector, 3072));
+      vectorsBySku.set(sku, ensureVectorLength(vector, EMBEDDING_DIMENSIONS));
     }
 
     const persistedProducts = await upsertProducts({

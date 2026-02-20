@@ -28,7 +28,7 @@ function normalizeVector(values: number[]): number[] {
 export class FallbackProvider implements EmbeddingProvider, LLMProvider {
   public readonly dimensions: number;
 
-  constructor(dimensions = 3072) {
+  constructor(dimensions = 1536) {
     this.dimensions = dimensions;
   }
 
