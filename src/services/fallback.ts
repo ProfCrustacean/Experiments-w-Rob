@@ -1,5 +1,6 @@
 import type {
   AttributeExtractionLLMOutput,
+  BatchAttributeExtractionInput,
   CategoryProfileLLMOutput,
   EmbeddingProvider,
   LLMProvider,
@@ -68,6 +69,9 @@ export class FallbackProvider implements EmbeddingProvider, LLMProvider {
   }
 
   async extractProductAttributes(input: {
+    product: { title: string; description?: string; brand?: string };
+    categoryName: string;
+    categoryDescription: string;
     attributeSchema: {
       schema_version: "1.0";
       category_name_pt: string;
@@ -89,5 +93,22 @@ export class FallbackProvider implements EmbeddingProvider, LLMProvider {
     }
 
     return { values, confidence };
+  }
+
+  async extractProductAttributesBatch(
+    input: BatchAttributeExtractionInput,
+  ): Promise<Record<string, AttributeExtractionLLMOutput>> {
+    const output: Record<string, AttributeExtractionLLMOutput> = {};
+
+    for (const item of input.products) {
+      output[item.sourceSku] = await this.extractProductAttributes({
+        product: item.product,
+        categoryName: input.categoryName,
+        categoryDescription: input.categoryDescription,
+        attributeSchema: input.attributeSchema,
+      });
+    }
+
+    return output;
   }
 }

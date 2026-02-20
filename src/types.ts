@@ -100,6 +100,18 @@ export interface AttributeExtractionLLMOutput {
   confidence: Record<string, number>;
 }
 
+export interface ProductAttributeExtractionInput {
+  sourceSku: string;
+  product: Pick<RawCatalogRow, "title" | "description" | "brand">;
+}
+
+export interface BatchAttributeExtractionInput {
+  categoryName: string;
+  categoryDescription: string;
+  attributeSchema: CategoryAttributeSchema;
+  products: ProductAttributeExtractionInput[];
+}
+
 export interface EmbeddingProvider {
   dimensions: number;
   embedMany(texts: string[]): Promise<number[][]>;
@@ -116,4 +128,7 @@ export interface LLMProvider {
     categoryDescription: string;
     attributeSchema: CategoryAttributeSchema;
   }): Promise<AttributeExtractionLLMOutput>;
+  extractProductAttributesBatch(
+    input: BatchAttributeExtractionInput,
+  ): Promise<Record<string, AttributeExtractionLLMOutput>>;
 }

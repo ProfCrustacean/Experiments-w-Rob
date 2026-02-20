@@ -34,10 +34,12 @@ export async function generateEmbeddingsForItems(
   provider: EmbeddingProvider,
   batchSize: number,
   concurrency: number,
+  onBatchCompleted?: (doneBatches: number, totalBatches: number) => void,
 ): Promise<Map<string, number[]>> {
   const output = new Map<string, number[]>();
   const limiter = pLimit(concurrency);
   const groups = chunk(items, batchSize);
+  let done = 0;
 
   await Promise.all(
     groups.map((group) =>
@@ -46,6 +48,8 @@ export async function generateEmbeddingsForItems(
         group.forEach((item, index) => {
           output.set(item.sourceSku, vectors[index]);
         });
+        done += 1;
+        onBatchCompleted?.(done, groups.length);
       }),
     ),
   );

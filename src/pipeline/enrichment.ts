@@ -1,4 +1,5 @@
 import type {
+  AttributeExtractionLLMOutput,
   CategoryAttribute,
   CategoryAttributeSchema,
   LLMProvider,
@@ -176,21 +177,12 @@ export async function enrichProduct(
   llm: LLMProvider | null,
   confidenceThreshold: number,
 ): Promise<ProductEnrichment> {
-  const ruleValues: Record<string, string | number | boolean | null> = {};
-  const ruleConfidence: Record<string, number> = {};
-
-  for (const attribute of category.attributes.attributes) {
-    const inferred = inferAttributeWithRules(attribute, product);
-    ruleValues[attribute.key] = coerceValue(attribute, inferred.value);
-    ruleConfidence[attribute.key] = sanitizeConfidence(inferred.confidence);
-  }
-
-  let llmValues: Record<string, string | number | boolean | null> = {};
-  let llmConfidence: Record<string, number> = {};
+  let llmOutput: AttributeExtractionLLMOutput | null = null;
+  let fallbackReason: string | undefined;
 
   if (llm) {
     try {
-      const response = await llm.extractProductAttributes({
+      llmOutput = await llm.extractProductAttributes({
         product: {
           title: product.title,
           description: product.description,
@@ -200,14 +192,46 @@ export async function enrichProduct(
         categoryDescription: category.description,
         attributeSchema: category.attributes,
       });
-
-      llmValues = response.values;
-      llmConfidence = response.confidence;
     } catch {
-      llmValues = {};
-      llmConfidence = {};
+      llmOutput = null;
+      fallbackReason = "llm_single_fallback";
     }
   }
+
+  return enrichProductWithSignals(
+    product,
+    category,
+    llmOutput,
+    confidenceThreshold,
+    fallbackReason ? { fallbackReason } : undefined,
+  );
+}
+
+export function enrichProductWithSignals(
+  product: NormalizedCatalogProduct,
+  category: {
+    slug: string;
+    attributes: CategoryAttributeSchema;
+    description: string;
+    confidenceScore: number;
+  },
+  llmOutput: AttributeExtractionLLMOutput | null,
+  confidenceThreshold: number,
+  options?: {
+    fallbackReason?: string;
+  },
+): ProductEnrichment {
+  const ruleValues: Record<string, string | number | boolean | null> = {};
+  const ruleConfidence: Record<string, number> = {};
+
+  for (const attribute of category.attributes.attributes) {
+    const inferred = inferAttributeWithRules(attribute, product);
+    ruleValues[attribute.key] = coerceValue(attribute, inferred.value);
+    ruleConfidence[attribute.key] = sanitizeConfidence(inferred.confidence);
+  }
+
+  const llmValues = llmOutput?.values ?? {};
+  const llmConfidence = llmOutput?.confidence ?? {};
 
   const attributeValues: Record<string, string | number | boolean | null> = {};
   const attributeConfidence: Record<string, number> = {};
@@ -258,6 +282,10 @@ export async function enrichProduct(
 
   if (category.confidenceScore < confidenceThreshold) {
     reasons.push("low_category_confidence");
+  }
+
+  if (options?.fallbackReason) {
+    reasons.push(options.fallbackReason);
   }
 
   const needsReview = reasons.length > 0;

@@ -8,11 +8,19 @@ async function main(): Promise<void> {
   const inputPath = requireArg(args, "input");
   const storeId = requireArg(args, "store");
   const runLabel = typeof args["run-label"] === "string" ? args["run-label"] : undefined;
+  const sampleParts =
+    typeof args["sample-parts"] === "string" ? Number(args["sample-parts"]) : undefined;
+  const samplePartIndex =
+    typeof args["sample-part-index"] === "string"
+      ? Number(args["sample-part-index"])
+      : undefined;
 
   const summary = await runPipeline({
     inputPath: path.resolve(process.cwd(), inputPath),
     storeId,
     runLabel,
+    sampleParts,
+    samplePartIndex,
   });
 
   // eslint-disable-next-line no-console

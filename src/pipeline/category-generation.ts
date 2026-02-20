@@ -1,3 +1,4 @@
+import pLimit from "p-limit";
 import type {
   CategoryAttribute,
   CategoryAttributeSchema,
@@ -75,47 +76,68 @@ function buildFallbackCategoryDraft(cluster: CategoryCluster): CategoryDraft {
 export async function generateCategoryDrafts(
   clusters: CategoryCluster[],
   llm: LLMProvider | null,
+  concurrency = 1,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<{
   drafts: CategoryDraft[];
   clusterKeyToSlug: Record<string, string>;
 }> {
+  const draftsByCluster: CategoryDraft[] = new Array(clusters.length);
+  const safeConcurrency = Math.max(1, Math.floor(concurrency));
+  const limiter = pLimit(safeConcurrency);
+  let done = 0;
+
+  await Promise.all(
+    clusters.map((cluster, index) =>
+      limiter(async () => {
+        let draft: CategoryDraft | null = null;
+
+        if (llm) {
+          try {
+            const response = await llm.generateCategoryProfile({
+              candidateName: cluster.candidateName,
+              sampleProducts: cluster.products.slice(0, 15).map((product) => ({
+                title: product.title,
+                description: product.description,
+                brand: product.brand,
+              })),
+            });
+
+            const name = shortSpecificName(response.name_pt || cluster.candidateName);
+            const attributes =
+              response.attributes.length > 0 ? response.attributes : getRuleDefaults(cluster.key);
+
+            draft = {
+              name_pt: name,
+              slug: makeSlug(name),
+              description_pt: response.description_pt,
+              attributes_jsonb: buildSchema(name, attributes),
+              synonyms: uniqueStrings([name, ...response.synonyms]),
+              sourceProductSkus: cluster.products.map((product) => product.sourceSku),
+            };
+          } catch {
+            draft = null;
+          }
+        }
+
+        if (!draft) {
+          draft = buildFallbackCategoryDraft(cluster);
+        }
+
+        draftsByCluster[index] = draft;
+        done += 1;
+        onProgress?.(done, clusters.length);
+      }),
+    ),
+  );
+
   const drafts: CategoryDraft[] = [];
   const clusterKeyToSlug: Record<string, string> = {};
   const usedSlugs = new Set<string>();
 
-  for (const cluster of clusters) {
-    let draft: CategoryDraft | null = null;
-
-    if (llm) {
-      try {
-        const response = await llm.generateCategoryProfile({
-          candidateName: cluster.candidateName,
-          sampleProducts: cluster.products.slice(0, 15).map((product) => ({
-            title: product.title,
-            description: product.description,
-            brand: product.brand,
-          })),
-        });
-
-        const name = shortSpecificName(response.name_pt || cluster.candidateName);
-        const attributes = response.attributes.length > 0 ? response.attributes : getRuleDefaults(cluster.key);
-
-        draft = {
-          name_pt: name,
-          slug: makeSlug(name),
-          description_pt: response.description_pt,
-          attributes_jsonb: buildSchema(name, attributes),
-          synonyms: uniqueStrings([name, ...response.synonyms]),
-          sourceProductSkus: cluster.products.map((product) => product.sourceSku),
-        };
-      } catch {
-        draft = null;
-      }
-    }
-
-    if (!draft) {
-      draft = buildFallbackCategoryDraft(cluster);
-    }
+  for (let index = 0; index < clusters.length; index += 1) {
+    const cluster = clusters[index];
+    const draft = draftsByCluster[index] ?? buildFallbackCategoryDraft(cluster);
 
     let finalSlug = draft.slug;
     let counter = 2;

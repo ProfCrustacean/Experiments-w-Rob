@@ -9,6 +9,17 @@ const envSchema = z.object({
   CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.7),
   BATCH_SIZE: z.coerce.number().int().positive().default(25),
   CONCURRENCY: z.coerce.number().int().positive().default(5),
+  INPUT_SAMPLE_PARTS: z.coerce.number().int().positive().default(1),
+  INPUT_SAMPLE_PART_INDEX: z.coerce.number().int().nonnegative().default(0),
+  CATEGORY_PROFILE_CONCURRENCY: z.coerce.number().int().positive().default(8),
+  ATTRIBUTE_BATCH_SIZE: z.coerce.number().int().positive().default(8),
+  ATTRIBUTE_LLM_CONCURRENCY: z.coerce.number().int().positive().default(8),
+  EMBEDDING_BATCH_SIZE: z.coerce.number().int().positive().default(50),
+  EMBEDDING_CONCURRENCY: z.coerce.number().int().positive().default(10),
+  OPENAI_TIMEOUT_MS: z.coerce.number().int().positive().default(25_000),
+  OPENAI_MAX_RETRIES: z.coerce.number().int().nonnegative().default(3),
+  OPENAI_RETRY_BASE_MS: z.coerce.number().int().positive().default(750),
+  OPENAI_RETRY_MAX_MS: z.coerce.number().int().positive().default(6_000),
   QA_SAMPLE_SIZE: z.coerce.number().int().positive().default(200),
   OUTPUT_DIR: z.string().min(1).default("outputs"),
 });
@@ -28,6 +39,18 @@ export function getConfig(): AppConfig {
       .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
       .join("; ");
     throw new Error(`Invalid environment configuration: ${errors}`);
+  }
+
+  if (parsed.data.INPUT_SAMPLE_PART_INDEX >= parsed.data.INPUT_SAMPLE_PARTS) {
+    throw new Error(
+      `Invalid environment configuration: INPUT_SAMPLE_PART_INDEX (${parsed.data.INPUT_SAMPLE_PART_INDEX}) must be smaller than INPUT_SAMPLE_PARTS (${parsed.data.INPUT_SAMPLE_PARTS})`,
+    );
+  }
+
+  if (parsed.data.OPENAI_RETRY_BASE_MS > parsed.data.OPENAI_RETRY_MAX_MS) {
+    throw new Error(
+      `Invalid environment configuration: OPENAI_RETRY_BASE_MS (${parsed.data.OPENAI_RETRY_BASE_MS}) must be <= OPENAI_RETRY_MAX_MS (${parsed.data.OPENAI_RETRY_MAX_MS})`,
+    );
   }
 
   cachedConfig = parsed.data;

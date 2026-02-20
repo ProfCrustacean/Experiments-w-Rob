@@ -30,6 +30,14 @@ Set at minimum:
 - `DATABASE_URL`
 - `OPENAI_API_KEY` (optional but recommended; fallback mode works without it)
 
+Useful throughput controls:
+
+- `INPUT_SAMPLE_PARTS`, `INPUT_SAMPLE_PART_INDEX`
+- `CATEGORY_PROFILE_CONCURRENCY`
+- `ATTRIBUTE_BATCH_SIZE`, `ATTRIBUTE_LLM_CONCURRENCY`
+- `EMBEDDING_BATCH_SIZE`, `EMBEDDING_CONCURRENCY`
+- `OPENAI_TIMEOUT_MS`, `OPENAI_MAX_RETRIES`, `OPENAI_RETRY_BASE_MS`, `OPENAI_RETRY_MAX_MS`
+
 ## Commands
 
 Run migrations:
@@ -42,6 +50,12 @@ Run enrichment pipeline:
 
 ```bash
 npm run pipeline -- --input ./data/catalog.xlsx --store continente --run-label pilot-1
+```
+
+Run a deterministic half-sample (part `0` of `2`):
+
+```bash
+npm run pipeline -- --input ./data/catalog.xlsx --store continente --run-label pilot-1 --sample-parts 2 --sample-part-index 0
 ```
 
 Run enrichment pipeline from environment variables (useful for Render cron jobs):
