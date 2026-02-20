@@ -105,16 +105,7 @@ BEGIN
       NULL;
     WHEN duplicate_object THEN
       NULL;
-    WHEN undefined_object THEN
-      BEGIN
-        EXECUTE 'CREATE INDEX idx_product_vectors_embedding_ivfflat ON product_vectors USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)';
-      EXCEPTION
-        WHEN duplicate_table THEN
-          NULL;
-        WHEN duplicate_object THEN
-          NULL;
-      END;
-    WHEN feature_not_supported THEN
+    WHEN OTHERS THEN
       BEGIN
         EXECUTE 'CREATE INDEX idx_product_vectors_embedding_ivfflat ON product_vectors USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)';
       EXCEPTION
