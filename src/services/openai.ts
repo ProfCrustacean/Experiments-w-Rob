@@ -51,6 +51,8 @@ const disambiguationSchema = z.object({
   reason: z.string().min(1),
 });
 
+const MAX_EMBEDDING_INPUT_CHARS = 6000;
+
 interface OpenAIProviderOptions {
   apiKey: string;
   llmModel: string;
@@ -154,6 +156,23 @@ function serializeError(error: unknown): Record<string, unknown> {
   return {
     message: String(error),
   };
+}
+
+function sanitizeEmbeddingInput(text: string): string {
+  const sanitized = text
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (sanitized.length === 0) {
+    return "sem_descricao";
+  }
+
+  if (sanitized.length <= MAX_EMBEDDING_INPUT_CHARS) {
+    return sanitized;
+  }
+
+  return sanitized.slice(0, MAX_EMBEDDING_INPUT_CHARS);
 }
 
 export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
@@ -357,10 +376,12 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
       return [];
     }
 
+    const sanitizedTexts = texts.map((text) => sanitizeEmbeddingInput(text));
+
     this.stats.embedding_call_count += 1;
     const requestBody = {
       model: this.embeddingModel,
-      input: texts,
+      input: sanitizedTexts,
       dimensions: this.dimensions,
     };
 
