@@ -41,6 +41,8 @@ Useful throughput controls:
 Report retention:
 
 - `ARTIFACT_RETENTION_HOURS` (default `24`)
+- `TRACE_RETENTION_HOURS` (default `24`)
+- `TRACE_FLUSH_BATCH_SIZE` (default `25`)
 
 ## Commands
 
@@ -75,6 +77,7 @@ Output:
 - Full run CSV in `outputs/pipeline_output_<runId>.csv`
 - Full run XLSX in `outputs/pipeline_output_<runId>.xlsx`
 - All three files are also stored in PostgreSQL for download from Render runs
+- Structured run traces are streamed live to Render logs and persisted in PostgreSQL
 
 List recent runs and available download formats:
 
@@ -91,6 +94,22 @@ npm run report:download -- --run-id <runId> --format xlsx --out ./outputs
 Supported `--format` values: `xlsx`, `csv`, `qa-csv`.
 
 Artifacts expire after `ARTIFACT_RETENTION_HOURS` (24h by default). Download commands return a clear expiry error when files are no longer available.
+
+Query detailed logs for a run:
+
+```bash
+npm run logs:run -- --run-id <runId> --limit 500
+```
+
+Optional filters for `logs:run`: `--stage`, `--event`, `--level`, `--include-expired`.
+
+Download all logs for a run as JSONL:
+
+```bash
+npm run logs:download -- --run-id <runId> --out ./outputs
+```
+
+Run logs expire after `TRACE_RETENTION_HOURS` (24h by default).
 
 Evaluate QA report and update run status (`accepted`/`rejected`):
 
@@ -114,6 +133,7 @@ Optional:
 ## Database tables
 
 - `pipeline_runs`
+- `pipeline_run_logs`
 - `pipeline_run_artifacts`
 - `categories`
 - `category_synonyms`

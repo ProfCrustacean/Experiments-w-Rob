@@ -18,8 +18,10 @@ import { generateCategoryDrafts } from "./category-generation.js";
 import { deduplicateRows, normalizeRows, readCatalogFile } from "./ingest.js";
 import {
   cleanupExpiredRunArtifacts,
+  cleanupExpiredRunLogs,
   createPipelineRun,
   finalizePipelineRun,
+  insertRunLogBatch,
   upsertRunArtifact,
   upsertCategoryDrafts,
   upsertProducts,
@@ -28,7 +30,8 @@ import {
 import { writeQAReport } from "./qa-report.js";
 import { buildRunArtifacts } from "./run-artifacts.js";
 import { FallbackProvider } from "../services/fallback.js";
-import { OpenAIProvider } from "../services/openai.js";
+import { OpenAIProvider, type OpenAITelemetryCallback } from "../services/openai.js";
+import { RunLogger } from "../logging/run-logger.js";
 
 const EMBEDDING_DIMENSIONS = 1536;
 
@@ -144,7 +147,7 @@ function validateSamplingInput(sampleParts: number, samplePartIndex: number): vo
   }
 }
 
-function createProviders(): {
+function createProviders(openAITelemetry?: OpenAITelemetryCallback): {
   embeddingProvider: EmbeddingProvider;
   llmProvider: LLMProvider;
   usingOpenAI: boolean;
@@ -162,6 +165,7 @@ function createProviders(): {
       maxRetries: config.OPENAI_MAX_RETRIES,
       retryBaseMs: config.OPENAI_RETRY_BASE_MS,
       retryMaxMs: config.OPENAI_RETRY_MAX_MS,
+      telemetry: openAITelemetry,
     });
 
     return {
@@ -201,20 +205,24 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
 
   await runMigrations();
 
+  const ingestStart = Date.now();
   const sourceRows = await readCatalogFile(input.inputPath);
   const deduplicated = deduplicateRows(sourceRows);
   const normalized = normalizeRows(deduplicated);
+  const ingestElapsedMs = Date.now() - ingestStart;
 
   if (normalized.length === 0) {
     throw new Error("No valid products found in the input file.");
   }
 
+  const samplingStart = Date.now();
   const partitioned = partitionProductsBySample(
     normalized,
     input.storeId,
     sampleParts,
     samplePartIndex,
   );
+  const samplingElapsedMs = Date.now() - samplingStart;
 
   if (partitioned.sampled.length === 0) {
     throw new Error(
@@ -229,6 +237,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
 
   const stageStartAt = new Date();
   const stageTimingsMs: Record<string, number> = {};
+  stageTimingsMs.ingest_ms = ingestElapsedMs;
+  stageTimingsMs.sampling_ms = samplingElapsedMs;
 
   const runId = await createPipelineRun({
     storeId: input.storeId,
@@ -239,21 +249,104 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
   let attributeBatchFallbackProducts = 0;
   let attributeBatchFailureCount = 0;
   let attributeBatchCount = 0;
+  const logger = new RunLogger({
+    runId,
+    traceRetentionHours: config.TRACE_RETENTION_HOURS,
+    flushBatchSize: config.TRACE_FLUSH_BATCH_SIZE,
+    insertBatch: insertRunLogBatch,
+  });
 
   try {
-    const { embeddingProvider, llmProvider, usingOpenAI, openAIProvider } = createProviders();
+    const configSnapshot = {
+      llm_model: config.LLM_MODEL,
+      embedding_model: config.EMBEDDING_MODEL,
+      confidence_threshold: config.CONFIDENCE_THRESHOLD,
+      category_profile_concurrency: config.CATEGORY_PROFILE_CONCURRENCY,
+      attribute_batch_size: config.ATTRIBUTE_BATCH_SIZE,
+      attribute_llm_concurrency: config.ATTRIBUTE_LLM_CONCURRENCY,
+      embedding_batch_size: config.EMBEDDING_BATCH_SIZE,
+      embedding_concurrency: config.EMBEDDING_CONCURRENCY,
+      openai_timeout_ms: config.OPENAI_TIMEOUT_MS,
+      openai_max_retries: config.OPENAI_MAX_RETRIES,
+      openai_retry_base_ms: config.OPENAI_RETRY_BASE_MS,
+      openai_retry_max_ms: config.OPENAI_RETRY_MAX_MS,
+      trace_retention_hours: config.TRACE_RETENTION_HOURS,
+      trace_flush_batch_size: config.TRACE_FLUSH_BATCH_SIZE,
+      output_dir: config.OUTPUT_DIR,
+    };
+
+    logger.info("pipeline", "run.started", "Pipeline run started.", {
+      run_id: runId,
+      store_id: input.storeId,
+      input_file_name: path.basename(input.inputPath),
+      sample_parts: sampleParts,
+      sample_part_index: samplePartIndex,
+      openai_enabled: Boolean(config.OPENAI_API_KEY),
+      config: configSnapshot,
+    });
+
+    logger.info("pipeline", "stage.started", "Starting ingest stage.", {
+      stage_name: "ingest",
+      historical_stage: true,
+    });
+    logger.info("pipeline", "stage.completed", "Ingest stage completed.", {
+      stage_name: "ingest",
+      historical_stage: true,
+      elapsed_ms: ingestElapsedMs,
+      input_rows: sourceRows.length,
+      deduplicated_rows: deduplicated.length,
+      normalized_rows: normalized.length,
+    });
+
+    logger.info("pipeline", "stage.started", "Starting sampling stage.", {
+      stage_name: "sampling",
+      historical_stage: true,
+    });
+    logger.info("pipeline", "stage.completed", "Sampling stage completed.", {
+      stage_name: "sampling",
+      historical_stage: true,
+      elapsed_ms: samplingElapsedMs,
+      sampled_rows: partitioned.sampled.length,
+      skipped_rows: partitioned.skipped,
+    });
+
+    const openAITelemetry: OpenAITelemetryCallback = (event) => {
+      logger.log(event.level, event.stage, event.event, event.message, event.payload);
+    };
+
+    const { embeddingProvider, llmProvider, usingOpenAI, openAIProvider } = createProviders(
+      openAITelemetry,
+    );
 
     if (!usingOpenAI) {
       // eslint-disable-next-line no-console
       console.warn(
         "OPENAI_API_KEY not found. Using deterministic fallback provider for category generation and vectors.",
       );
+      logger.warn(
+        "pipeline",
+        "run.fallback_provider",
+        "OPENAI_API_KEY is missing; deterministic fallback provider is active.",
+      );
     }
 
+    logger.info("pipeline", "stage.started", "Starting categorization stage.", {
+      stage_name: "categorization",
+      product_count: partitioned.sampled.length,
+    });
     const categorizationStart = Date.now();
     const { clusters, skuToClusterKey } = clusterProducts(partitioned.sampled);
     stageTimingsMs.categorization_ms = Date.now() - categorizationStart;
+    logger.info("pipeline", "stage.completed", "Categorization stage completed.", {
+      stage_name: "categorization",
+      elapsed_ms: stageTimingsMs.categorization_ms,
+      cluster_count: clusters.length,
+    });
 
+    logger.info("pipeline", "stage.started", "Starting category generation stage.", {
+      stage_name: "category_generation",
+      cluster_count: clusters.length,
+    });
     const categoryGenerationStart = Date.now();
     const { drafts, clusterKeyToSlug } = await generateCategoryDrafts(
       clusters,
@@ -263,14 +356,36 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         if (shouldLogProgress(done, total)) {
           // eslint-disable-next-line no-console
           console.log(`[category_generation] ${done}/${total} completed`);
+          logger.info(
+            "pipeline",
+            "batch.category_profile.completed",
+            "Category profile batch progress updated.",
+            {
+              completed: done,
+              total,
+            },
+          );
         }
       },
     );
     stageTimingsMs.category_generation_ms = Date.now() - categoryGenerationStart;
+    logger.info("pipeline", "stage.completed", "Category generation stage completed.", {
+      stage_name: "category_generation",
+      elapsed_ms: stageTimingsMs.category_generation_ms,
+      category_count: drafts.length,
+    });
 
+    logger.info("pipeline", "stage.started", "Starting category persistence stage.", {
+      stage_name: "category_persist",
+      category_count: drafts.length,
+    });
     const categoryUpsertStart = Date.now();
     const categoriesBySlug = await upsertCategoryDrafts(input.storeId, drafts);
     stageTimingsMs.category_upsert_ms = Date.now() - categoryUpsertStart;
+    logger.info("pipeline", "stage.completed", "Category persistence stage completed.", {
+      stage_name: "category_persist",
+      elapsed_ms: stageTimingsMs.category_upsert_ms,
+    });
 
     const clusterScoreBySku: Record<string, number> = {};
     for (const cluster of clusters) {
@@ -279,6 +394,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       }
     }
 
+    logger.info("pipeline", "stage.started", "Starting enrichment stage.", {
+      stage_name: "enrichment",
+    });
     const enrichmentStart = Date.now();
     const enrichmentMap = new Map<string, ProductEnrichment>();
 
@@ -348,6 +466,12 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       await Promise.all(
         batchTasks.map((task) =>
           limiter(async () => {
+            logger.debug("pipeline", "batch.attribute.started", "Attribute batch started.", {
+              category_slug: task.categorySlug,
+              sku_count: task.items.length,
+              source_skus: task.items.map((item) => item.sourceSku),
+            });
+
             let outputBySku: Record<string, AttributeExtractionLLMOutput> | null = null;
 
             try {
@@ -364,9 +488,14 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
                   },
                 })),
               });
-            } catch {
+            } catch (error) {
               attributeBatchFailureCount += 1;
               outputBySku = null;
+              logger.warn("pipeline", "batch.attribute.failed", "Attribute batch failed.", {
+                category_slug: task.categorySlug,
+                sku_count: task.items.length,
+                error_message: error instanceof Error ? error.message : "unknown_error",
+              });
             }
 
             for (const product of task.items) {
@@ -393,6 +522,11 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
             }
 
             completedBatches += 1;
+            logger.info("pipeline", "batch.attribute.completed", "Attribute batch completed.", {
+              category_slug: task.categorySlug,
+              completed_batches: completedBatches,
+              total_batches: batchTasks.length,
+            });
             if (shouldLogProgress(completedBatches, batchTasks.length)) {
               // eslint-disable-next-line no-console
               console.log(`[attribute_batches] ${completedBatches}/${batchTasks.length} completed`);
@@ -409,7 +543,17 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
     }
 
     stageTimingsMs.enrichment_ms = Date.now() - enrichmentStart;
+    logger.info("pipeline", "stage.completed", "Enrichment stage completed.", {
+      stage_name: "enrichment",
+      elapsed_ms: stageTimingsMs.enrichment_ms,
+      attribute_batch_count: attributeBatchCount,
+      attribute_batch_failure_count: attributeBatchFailureCount,
+      attribute_batch_fallback_products: attributeBatchFallbackProducts,
+    });
 
+    logger.info("pipeline", "stage.started", "Starting embedding stage.", {
+      stage_name: "embedding",
+    });
     const embeddingStart = Date.now();
     const embeddingWorkItems: Array<{ sourceSku: string; text: string }> = [];
     const embeddedTextBySku = new Map<string, string>();
@@ -441,6 +585,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         if (shouldLogProgress(done, total)) {
           // eslint-disable-next-line no-console
           console.log(`[embeddings] ${done}/${total} batches completed`);
+          logger.info(
+            "pipeline",
+            "batch.embedding.completed",
+            "Embedding batch progress updated.",
+            {
+              completed: done,
+              total,
+            },
+          );
         }
       },
     );
@@ -450,7 +603,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       vectorsBySku.set(sku, ensureVectorLength(vector, EMBEDDING_DIMENSIONS));
     }
     stageTimingsMs.embedding_ms = Date.now() - embeddingStart;
+    logger.info("pipeline", "stage.completed", "Embedding stage completed.", {
+      stage_name: "embedding",
+      elapsed_ms: stageTimingsMs.embedding_ms,
+      embedded_products: vectorsBySku.size,
+    });
 
+    logger.info("pipeline", "stage.started", "Starting product persistence stage.", {
+      stage_name: "product_persist",
+    });
     const productPersistStart = Date.now();
     const persistedProducts = await upsertProducts({
       storeId: input.storeId,
@@ -467,7 +628,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       embeddingModel: config.EMBEDDING_MODEL,
     });
     stageTimingsMs.product_persist_ms = Date.now() - productPersistStart;
+    logger.info("pipeline", "stage.completed", "Product persistence stage completed.", {
+      stage_name: "product_persist",
+      elapsed_ms: stageTimingsMs.product_persist_ms,
+      persisted_products: persistedProducts.size,
+    });
 
+    logger.info("pipeline", "stage.started", "Starting QA report stage.", {
+      stage_name: "qa_report",
+    });
     const qaStart = Date.now();
     const qaRows = partitioned.sampled.map((product) => {
       const enrichment = enrichmentMap.get(product.sourceSku);
@@ -491,6 +660,12 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       sampleSize: config.QA_SAMPLE_SIZE,
     });
     stageTimingsMs.qa_report_ms = Date.now() - qaStart;
+    logger.info("pipeline", "stage.completed", "QA report stage completed.", {
+      stage_name: "qa_report",
+      elapsed_ms: stageTimingsMs.qa_report_ms,
+      qa_sampled_rows: qaResult.sampledRows,
+      qa_total_rows: qaResult.totalRows,
+    });
 
     const needsReviewCount = qaRows.filter((row) => row.needsReview).length;
 
@@ -500,6 +675,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       runFinishedAt.getTime() + config.ARTIFACT_RETENTION_HOURS * 60 * 60 * 1000,
     );
 
+    logger.info("pipeline", "stage.started", "Starting artifact generation stage.", {
+      stage_name: "artifact_generation",
+    });
     const artifactBuildStart = Date.now();
     const artifactBuild = buildRunArtifacts({
       runId,
@@ -522,7 +700,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       expiresAt: artifactsExpireAt,
     });
     stageTimingsMs.artifact_generation_ms = Date.now() - artifactBuildStart;
+    logger.info("pipeline", "stage.completed", "Artifact generation stage completed.", {
+      stage_name: "artifact_generation",
+      elapsed_ms: stageTimingsMs.artifact_generation_ms,
+      artifact_count: artifactBuild.artifacts.length,
+    });
 
+    logger.info("pipeline", "stage.started", "Starting artifact persistence stage.", {
+      stage_name: "artifact_persist",
+    });
     const artifactPersistStart = Date.now();
     await mkdir(config.OUTPUT_DIR, { recursive: true });
 
@@ -539,10 +725,39 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       });
     }
     stageTimingsMs.artifact_persist_ms = Date.now() - artifactPersistStart;
+    logger.info("pipeline", "stage.completed", "Artifact persistence stage completed.", {
+      stage_name: "artifact_persist",
+      elapsed_ms: stageTimingsMs.artifact_persist_ms,
+      artifact_count: artifactBuild.artifacts.length,
+    });
 
+    logger.info("pipeline", "stage.started", "Starting cleanup stage.", {
+      stage_name: "cleanup",
+    });
     const artifactCleanupStart = Date.now();
     const cleanedArtifacts = await cleanupExpiredRunArtifacts(config.ARTIFACT_RETENTION_HOURS);
+    const cleanedLogs = await cleanupExpiredRunLogs(config.TRACE_RETENTION_HOURS);
     stageTimingsMs.artifact_cleanup_ms = Date.now() - artifactCleanupStart;
+    logger.info("persistence", "cleanup.logs.completed", "Expired trace logs cleanup completed.", {
+      deleted_count: cleanedLogs,
+      retention_hours: config.TRACE_RETENTION_HOURS,
+    });
+    logger.info("pipeline", "stage.completed", "Cleanup stage completed.", {
+      stage_name: "cleanup",
+      elapsed_ms: stageTimingsMs.artifact_cleanup_ms,
+      artifact_cleanup_deleted_count: cleanedArtifacts,
+      log_cleanup_deleted_count: cleanedLogs,
+    });
+
+    logger.info("pipeline", "run.completed", "Pipeline run completed successfully.", {
+      run_id: runId,
+      processed_products: partitioned.sampled.length,
+      category_count: drafts.length,
+      needs_review_count: needsReviewCount,
+    });
+
+    await logger.flush("run_completed");
+    const traceStats = logger.getStats();
 
     await finalizePipelineRun({
       runId,
@@ -562,6 +777,11 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         artifact_retention_hours: config.ARTIFACT_RETENTION_HOURS,
         artifacts: artifactBuild.artifactSummaries,
         artifact_cleanup_deleted_count: cleanedArtifacts,
+        trace_cleanup_deleted_count: cleanedLogs,
+        trace_retention_hours: config.TRACE_RETENTION_HOURS,
+        trace_event_count: traceStats.trace_event_count,
+        trace_openai_event_count: traceStats.trace_openai_event_count,
+        trace_flush_error_count: traceStats.trace_flush_error_count,
         openai_enabled: usingOpenAI,
         attribute_batch_count: attributeBatchCount,
         attribute_batch_failure_count: attributeBatchFailureCount,
@@ -589,6 +809,14 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       status: "completed_pending_review",
     };
   } catch (error) {
+    logger.error("pipeline", "run.failed", "Pipeline run failed.", {
+      run_id: runId,
+      error_message: error instanceof Error ? error.message : "unknown_error",
+    });
+
+    await logger.flush("run_failed");
+    const traceStats = logger.getStats();
+
     await finalizePipelineRun({
       runId,
       status: "failed",
@@ -597,6 +825,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         stage_timings_ms: stageTimingsMs,
         sample_parts: sampleParts,
         sample_part_index: samplePartIndex,
+        trace_retention_hours: config.TRACE_RETENTION_HOURS,
+        trace_event_count: traceStats.trace_event_count,
+        trace_openai_event_count: traceStats.trace_openai_event_count,
+        trace_flush_error_count: traceStats.trace_flush_error_count,
       },
     });
 

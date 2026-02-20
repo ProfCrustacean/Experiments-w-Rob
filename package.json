@@ -13,6 +13,8 @@
     "pipeline": "tsx src/cli/pipeline.ts",
     "pipeline:env": "tsx src/cli/pipeline-from-env.ts",
     "qa:evaluate": "tsx src/cli/qa-evaluate.ts",
+    "logs:run": "tsx src/cli/logs-run.ts",
+    "logs:download": "tsx src/cli/logs-download.ts",
     "report:download": "tsx src/cli/report-download.ts",
     "report:list": "tsx src/cli/report-list.ts"
   },

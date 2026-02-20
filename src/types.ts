@@ -92,6 +92,20 @@ export interface RunArtifactSummary {
   expiresAt: string;
 }
 
+export type RunLogLevel = "debug" | "info" | "warn" | "error";
+
+export interface PipelineRunLogRow {
+  runId: string;
+  seq: number;
+  level: RunLogLevel;
+  stage: string;
+  event: string;
+  message: string;
+  payload: Record<string, unknown>;
+  timestamp: string;
+  expiresAt: string;
+}
+
 export interface CategoryCluster {
   key: string;
   candidateName: string;

@@ -7,6 +7,7 @@ import type {
   CategoryProfileLLMOutput,
   EmbeddingProvider,
   LLMProvider,
+  RunLogLevel,
 } from "../types.js";
 
 const categoryProfileSchema = z.object({
@@ -51,6 +52,7 @@ interface OpenAIProviderOptions {
   maxRetries: number;
   retryBaseMs: number;
   retryMaxMs: number;
+  telemetry?: OpenAITelemetryCallback;
 }
 
 interface OpenAIProviderStats {
@@ -61,6 +63,16 @@ interface OpenAIProviderStats {
   timeout_count: number;
   request_failure_count: number;
 }
+
+export interface OpenAITelemetryEvent {
+  level: RunLogLevel;
+  stage: string;
+  event: string;
+  message: string;
+  payload?: Record<string, unknown>;
+}
+
+export type OpenAITelemetryCallback = (event: OpenAITelemetryEvent) => void;
 
 function clampConfidence(value: unknown): number {
   const parsed = Number(value);
@@ -110,6 +122,31 @@ function isRetryableError(error: unknown): boolean {
   return false;
 }
 
+function serializeError(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    const maybeError = error as Error & {
+      status?: number;
+      code?: string;
+      type?: string;
+    };
+    return {
+      name: maybeError.name,
+      message: maybeError.message,
+      status: maybeError.status ?? null,
+      code: maybeError.code ?? null,
+      type: maybeError.type ?? null,
+    };
+  }
+
+  if (typeof error === "object" && error !== null) {
+    return JSON.parse(JSON.stringify(error)) as Record<string, unknown>;
+  }
+
+  return {
+    message: String(error),
+  };
+}
+
 export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
   public readonly dimensions: number;
 
@@ -120,6 +157,7 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
   private readonly maxRetries: number;
   private readonly retryBaseMs: number;
   private readonly retryMaxMs: number;
+  private readonly telemetry?: OpenAITelemetryCallback;
 
   private readonly stats: OpenAIProviderStats = {
     embedding_call_count: 0,
@@ -139,6 +177,7 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
     this.maxRetries = options.maxRetries;
     this.retryBaseMs = options.retryBaseMs;
     this.retryMaxMs = options.retryMaxMs;
+    this.telemetry = options.telemetry;
   }
 
   getStats(): OpenAIProviderStats {
@@ -167,26 +206,121 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
     }
   }
 
-  private async withRetry<T>(operation: () => Promise<T>): Promise<T> {
+  private emitTelemetry(event: OpenAITelemetryEvent): void {
+    this.telemetry?.(event);
+  }
+
+  private async withRetry<T>(input: {
+    callKind: "embedding" | "category_profile" | "attribute_batch";
+    requestBody: Record<string, unknown>;
+    operation: () => Promise<T>;
+    responsePayloadFactory: (response: T) => Record<string, unknown>;
+  }): Promise<T> {
     const totalAttempts = this.maxRetries + 1;
 
+    this.emitTelemetry({
+      level: "debug",
+      stage: "openai",
+      event: "openai.call.started",
+      message: `OpenAI call started (${input.callKind}).`,
+      payload: {
+        call_kind: input.callKind,
+        total_attempts: totalAttempts,
+        request_body: input.requestBody,
+      },
+    });
+
     for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
+      const attemptStartedAt = Date.now();
+
+      this.emitTelemetry({
+        level: "debug",
+        stage: "openai",
+        event: "openai.attempt.started",
+        message: `OpenAI attempt started (${input.callKind}).`,
+        payload: {
+          call_kind: input.callKind,
+          attempt,
+          total_attempts: totalAttempts,
+        },
+      });
+
       try {
-        return await this.withTimeout(operation());
+        const response = await this.withTimeout(input.operation());
+
+        this.emitTelemetry({
+          level: "debug",
+          stage: "openai",
+          event: "openai.attempt.succeeded",
+          message: `OpenAI attempt succeeded (${input.callKind}).`,
+          payload: {
+            call_kind: input.callKind,
+            attempt,
+            elapsed_ms: Date.now() - attemptStartedAt,
+            ...input.responsePayloadFactory(response),
+          },
+        });
+
+        return response;
       } catch (error) {
         if (isTimeoutError(error)) {
           this.stats.timeout_count += 1;
         }
 
         const retryable = isRetryableError(error);
+        const errorPayload = serializeError(error);
+
+        this.emitTelemetry({
+          level: "warn",
+          stage: "openai",
+          event: "openai.attempt.failed",
+          message: `OpenAI attempt failed (${input.callKind}).`,
+          payload: {
+            call_kind: input.callKind,
+            attempt,
+            total_attempts: totalAttempts,
+            retryable,
+            elapsed_ms: Date.now() - attemptStartedAt,
+            error: errorPayload,
+          },
+        });
+
         if (!retryable || attempt === totalAttempts) {
           this.stats.request_failure_count += 1;
+
+          this.emitTelemetry({
+            level: "error",
+            stage: "openai",
+            event: "openai.call.failed",
+            message: `OpenAI call failed (${input.callKind}).`,
+            payload: {
+              call_kind: input.callKind,
+              attempt,
+              total_attempts: totalAttempts,
+              error: errorPayload,
+            },
+          });
+
           throw error;
         }
 
         this.stats.retry_count += 1;
         const baseDelay = Math.min(this.retryMaxMs, this.retryBaseMs * 2 ** (attempt - 1));
         const jitteredDelay = Math.round(baseDelay * (0.8 + Math.random() * 0.4));
+
+        this.emitTelemetry({
+          level: "warn",
+          stage: "openai",
+          event: "openai.retry.scheduled",
+          message: `OpenAI retry scheduled (${input.callKind}).`,
+          payload: {
+            call_kind: input.callKind,
+            attempt,
+            total_attempts: totalAttempts,
+            delay_ms: jitteredDelay,
+          },
+        });
+
         await this.delay(jitteredDelay);
       }
     }
@@ -214,13 +348,25 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
     }
 
     this.stats.embedding_call_count += 1;
-    const response = await this.withRetry(() =>
-      this.client.embeddings.create({
-        model: this.embeddingModel,
-        input: texts,
-        dimensions: this.dimensions,
+    const requestBody = {
+      model: this.embeddingModel,
+      input: texts,
+      dimensions: this.dimensions,
+    };
+
+    const response = await this.withRetry({
+      callKind: "embedding",
+      requestBody,
+      operation: () => this.client.embeddings.create(requestBody),
+      responsePayloadFactory: (embeddingResponse) => ({
+        response_metadata: {
+          model: embeddingResponse.model,
+          item_count: embeddingResponse.data.length,
+          dimensions: embeddingResponse.data[0]?.embedding?.length ?? this.dimensions,
+          usage: embeddingResponse.usage ?? null,
+        },
       }),
-    );
+    });
 
     return response.data
       .sort((a, b) => a.index - b.index)
@@ -244,24 +390,31 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
     ].join("\n");
 
     this.stats.category_profile_call_count += 1;
-    const completion = await this.withRetry(() =>
-      this.client.chat.completions.create({
-        model: this.llmModel,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content:
-              "Retorne JSON no formato: {name_pt, description_pt, synonyms, attributes:[{key,label_pt,type,allowed_values?,required}]}",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.2,
+    const requestBody = {
+      model: this.llmModel,
+      response_format: { type: "json_object" as const },
+      messages: [
+        {
+          role: "system" as const,
+          content:
+            "Retorne JSON no formato: {name_pt, description_pt, synonyms, attributes:[{key,label_pt,type,allowed_values?,required}]}",
+        },
+        {
+          role: "user" as const,
+          content: prompt,
+        },
+      ],
+      temperature: 0.2,
+    };
+
+    const completion = await this.withRetry({
+      callKind: "category_profile",
+      requestBody,
+      operation: () => this.client.chat.completions.create(requestBody),
+      responsePayloadFactory: (chatResponse) => ({
+        response_body: chatResponse,
       }),
-    );
+    });
 
     const content = completion.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(content);
@@ -319,24 +472,31 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
     ].join("\n");
 
     this.stats.attribute_batch_call_count += 1;
-    const completion = await this.withRetry(() =>
-      this.client.chat.completions.create({
-        model: this.llmModel,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content:
-              "Retorne JSON no formato {results:[{source_sku, values:{[key]:valueOuNull}, confidence:{[key]:numero0a1}}]}. Use apenas chaves existentes no schema.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0,
+    const requestBody = {
+      model: this.llmModel,
+      response_format: { type: "json_object" as const },
+      messages: [
+        {
+          role: "system" as const,
+          content:
+            "Retorne JSON no formato {results:[{source_sku, values:{[key]:valueOuNull}, confidence:{[key]:numero0a1}}]}. Use apenas chaves existentes no schema.",
+        },
+        {
+          role: "user" as const,
+          content: prompt,
+        },
+      ],
+      temperature: 0,
+    };
+
+    const completion = await this.withRetry({
+      callKind: "attribute_batch",
+      requestBody,
+      operation: () => this.client.chat.completions.create(requestBody),
+      responsePayloadFactory: (chatResponse) => ({
+        response_body: chatResponse,
       }),
-    );
+    });
 
     const content = completion.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(content);

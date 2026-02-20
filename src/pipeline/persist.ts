@@ -3,6 +3,7 @@ import { getPool } from "../db/client.js";
 import type {
   CategoryDraft,
   NormalizedCatalogProduct,
+  PipelineRunLogRow,
   PersistedCategory,
   PersistedProduct,
   ProductEnrichment,
@@ -293,6 +294,181 @@ export async function listPipelineRunsByStore(input: {
     finishedAt: row.finished_at ? toIsoString(row.finished_at) : null,
     stats: row.stats_json ?? {},
   }));
+}
+
+function mapRunLogRow(row: {
+  run_id: string;
+  seq: number;
+  level: "debug" | "info" | "warn" | "error";
+  stage: string;
+  event: string;
+  message: string;
+  payload_jsonb: Record<string, unknown>;
+  created_at: Date | string;
+  expires_at: Date | string;
+}): PipelineRunLogRow {
+  return {
+    runId: row.run_id,
+    seq: row.seq,
+    level: row.level,
+    stage: row.stage,
+    event: row.event,
+    message: row.message,
+    payload: row.payload_jsonb ?? {},
+    timestamp: toIsoString(row.created_at),
+    expiresAt: toIsoString(row.expires_at),
+  };
+}
+
+export async function insertRunLogBatch(rows: PipelineRunLogRow[]): Promise<void> {
+  if (rows.length === 0) {
+    return;
+  }
+
+  const pool = getPool();
+  const values: unknown[] = [];
+  const placeholders: string[] = [];
+
+  let position = 1;
+  for (const row of rows) {
+    values.push(
+      row.runId,
+      row.seq,
+      row.level,
+      row.stage,
+      row.event,
+      row.message,
+      JSON.stringify(row.payload ?? {}),
+      row.expiresAt,
+    );
+    placeholders.push(
+      `($${position}, $${position + 1}, $${position + 2}, $${position + 3}, $${position + 4}, $${position + 5}, $${position + 6}::jsonb, $${position + 7})`,
+    );
+    position += 8;
+  }
+
+  await pool.query(
+    `
+      INSERT INTO pipeline_run_logs (
+        run_id,
+        seq,
+        level,
+        stage,
+        event,
+        message,
+        payload_jsonb,
+        expires_at
+      )
+      VALUES ${placeholders.join(", ")}
+      ON CONFLICT (run_id, seq) DO NOTHING
+    `,
+    values,
+  );
+}
+
+export async function listRunLogs(input: {
+  runId: string;
+  limit: number;
+  stage?: string;
+  event?: string;
+  level?: "debug" | "info" | "warn" | "error";
+  includeExpired?: boolean;
+}): Promise<PipelineRunLogRow[]> {
+  const pool = getPool();
+  const result = await pool.query<{
+    run_id: string;
+    seq: number;
+    level: "debug" | "info" | "warn" | "error";
+    stage: string;
+    event: string;
+    message: string;
+    payload_jsonb: Record<string, unknown>;
+    created_at: Date | string;
+    expires_at: Date | string;
+  }>(
+    `
+      SELECT
+        run_id,
+        seq,
+        level,
+        stage,
+        event,
+        message,
+        payload_jsonb,
+        created_at,
+        expires_at
+      FROM pipeline_run_logs
+      WHERE run_id = $1
+        AND ($2::boolean = true OR expires_at > NOW())
+        AND ($3::text IS NULL OR stage = $3)
+        AND ($4::text IS NULL OR event = $4)
+        AND ($5::text IS NULL OR level = $5)
+      ORDER BY seq DESC
+      LIMIT $6
+    `,
+    [
+      input.runId,
+      Boolean(input.includeExpired),
+      input.stage ?? null,
+      input.event ?? null,
+      input.level ?? null,
+      input.limit,
+    ],
+  );
+
+  return result.rows.map(mapRunLogRow).reverse();
+}
+
+export async function exportRunLogs(input: {
+  runId: string;
+  includeExpired?: boolean;
+}): Promise<PipelineRunLogRow[]> {
+  const pool = getPool();
+  const result = await pool.query<{
+    run_id: string;
+    seq: number;
+    level: "debug" | "info" | "warn" | "error";
+    stage: string;
+    event: string;
+    message: string;
+    payload_jsonb: Record<string, unknown>;
+    created_at: Date | string;
+    expires_at: Date | string;
+  }>(
+    `
+      SELECT
+        run_id,
+        seq,
+        level,
+        stage,
+        event,
+        message,
+        payload_jsonb,
+        created_at,
+        expires_at
+      FROM pipeline_run_logs
+      WHERE run_id = $1
+        AND ($2::boolean = true OR expires_at > NOW())
+      ORDER BY seq ASC
+    `,
+    [input.runId, Boolean(input.includeExpired)],
+  );
+
+  return result.rows.map(mapRunLogRow);
+}
+
+export async function cleanupExpiredRunLogs(retentionHours: number): Promise<number> {
+  const pool = getPool();
+  const result = await pool.query(
+    `
+      DELETE FROM pipeline_run_logs
+      WHERE expires_at <= NOW()
+         OR created_at <= NOW() - (($1::text || ' hours')::interval)
+    `,
+    [retentionHours],
+  );
+
+  return result.rowCount ?? 0;
 }
 
 async function upsertCategory(
