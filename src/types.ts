@@ -78,7 +78,18 @@ export interface PipelineRunSummary {
   categoryCount: number;
   needsReviewCount: number;
   qaReportPath: string;
+  artifacts: RunArtifactSummary[];
   status: "completed_pending_review" | "failed";
+}
+
+export type RunArtifactFormat = "xlsx" | "csv" | "qa-csv";
+
+export interface RunArtifactSummary {
+  key: string;
+  fileName: string;
+  format: RunArtifactFormat;
+  sizeBytes: number;
+  expiresAt: string;
 }
 
 export interface CategoryCluster {

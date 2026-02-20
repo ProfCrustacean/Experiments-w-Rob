@@ -1,3 +1,4 @@
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pLimit from "p-limit";
 import { getConfig } from "../config.js";
@@ -16,13 +17,16 @@ import { enrichProductWithSignals } from "./enrichment.js";
 import { generateCategoryDrafts } from "./category-generation.js";
 import { deduplicateRows, normalizeRows, readCatalogFile } from "./ingest.js";
 import {
+  cleanupExpiredRunArtifacts,
   createPipelineRun,
   finalizePipelineRun,
+  upsertRunArtifact,
   upsertCategoryDrafts,
   upsertProducts,
   upsertProductVectors,
 } from "./persist.js";
 import { writeQAReport } from "./qa-report.js";
+import { buildRunArtifacts } from "./run-artifacts.js";
 import { FallbackProvider } from "../services/fallback.js";
 import { OpenAIProvider } from "../services/openai.js";
 
@@ -491,6 +495,54 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
     const needsReviewCount = qaRows.filter((row) => row.needsReview).length;
 
     const openAIStats = usingOpenAI ? openAIProvider?.getStats() ?? null : null;
+    const runFinishedAt = new Date();
+    const artifactsExpireAt = new Date(
+      runFinishedAt.getTime() + config.ARTIFACT_RETENTION_HOURS * 60 * 60 * 1000,
+    );
+
+    const artifactBuildStart = Date.now();
+    const artifactBuild = buildRunArtifacts({
+      runId,
+      storeId: input.storeId,
+      inputFileName: path.basename(input.inputPath),
+      products: partitioned.sampled,
+      enrichments: enrichmentMap,
+      categoriesBySlug,
+      qaReportFileName: qaResult.fileName,
+      qaReportCsvContent: qaResult.csvContent,
+      categoryCount: drafts.length,
+      needsReviewCount,
+      stageTimingsMs,
+      openAIEnabled: usingOpenAI,
+      openAIRequestStats: openAIStats,
+      attributeBatchFailureCount,
+      attributeBatchFallbackProducts,
+      startedAt: stageStartAt,
+      finishedAt: runFinishedAt,
+      expiresAt: artifactsExpireAt,
+    });
+    stageTimingsMs.artifact_generation_ms = Date.now() - artifactBuildStart;
+
+    const artifactPersistStart = Date.now();
+    await mkdir(config.OUTPUT_DIR, { recursive: true });
+
+    for (const artifact of artifactBuild.artifacts) {
+      const localPath = path.join(config.OUTPUT_DIR, artifact.fileName);
+      await writeFile(localPath, artifact.content);
+      await upsertRunArtifact({
+        runId,
+        artifactKey: artifact.key,
+        fileName: artifact.fileName,
+        mimeType: artifact.mimeType,
+        content: artifact.content,
+        expiresAt: artifactsExpireAt,
+      });
+    }
+    stageTimingsMs.artifact_persist_ms = Date.now() - artifactPersistStart;
+
+    const artifactCleanupStart = Date.now();
+    const cleanedArtifacts = await cleanupExpiredRunArtifacts(config.ARTIFACT_RETENTION_HOURS);
+    stageTimingsMs.artifact_cleanup_ms = Date.now() - artifactCleanupStart;
 
     await finalizePipelineRun({
       runId,
@@ -507,6 +559,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         qa_sampled_rows: qaResult.sampledRows,
         qa_total_rows: qaResult.totalRows,
         qa_report_path: qaResult.filePath,
+        artifact_retention_hours: config.ARTIFACT_RETENTION_HOURS,
+        artifacts: artifactBuild.artifactSummaries,
+        artifact_cleanup_deleted_count: cleanedArtifacts,
         openai_enabled: usingOpenAI,
         attribute_batch_count: attributeBatchCount,
         attribute_batch_failure_count: attributeBatchFailureCount,
@@ -530,6 +585,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       categoryCount: drafts.length,
       needsReviewCount,
       qaReportPath: qaResult.filePath,
+      artifacts: artifactBuild.artifactSummaries,
       status: "completed_pending_review",
     };
   } catch (error) {

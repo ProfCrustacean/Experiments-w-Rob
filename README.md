@@ -10,7 +10,7 @@ Prototype pipeline to enrich catalog products for school-supply matching.
 - Extracts category-specific attributes per product
 - Writes categories and products to PostgreSQL (`JSONB`)
 - Creates product embeddings and stores vectors with `pgvector`
-- Produces a QA CSV sample for manual validation
+- Produces full downloadable run reports (XLSX + CSV) and QA CSV
 
 ## Requirements
 
@@ -37,6 +37,10 @@ Useful throughput controls:
 - `ATTRIBUTE_BATCH_SIZE`, `ATTRIBUTE_LLM_CONCURRENCY`
 - `EMBEDDING_BATCH_SIZE`, `EMBEDDING_CONCURRENCY`
 - `OPENAI_TIMEOUT_MS`, `OPENAI_MAX_RETRIES`, `OPENAI_RETRY_BASE_MS`, `OPENAI_RETRY_MAX_MS`
+
+Report retention:
+
+- `ARTIFACT_RETENTION_HOURS` (default `24`)
 
 ## Commands
 
@@ -68,6 +72,25 @@ Output:
 
 - Terminal JSON summary (includes `runId`)
 - QA report CSV in `outputs/qa_report_<runId>.csv`
+- Full run CSV in `outputs/pipeline_output_<runId>.csv`
+- Full run XLSX in `outputs/pipeline_output_<runId>.xlsx`
+- All three files are also stored in PostgreSQL for download from Render runs
+
+List recent runs and available download formats:
+
+```bash
+npm run report:list -- --store continente --limit 20
+```
+
+Download one artifact by run ID:
+
+```bash
+npm run report:download -- --run-id <runId> --format xlsx --out ./outputs
+```
+
+Supported `--format` values: `xlsx`, `csv`, `qa-csv`.
+
+Artifacts expire after `ARTIFACT_RETENTION_HOURS` (24h by default). Download commands return a clear expiry error when files are no longer available.
 
 Evaluate QA report and update run status (`accepted`/`rejected`):
 
@@ -91,6 +114,7 @@ Optional:
 ## Database tables
 
 - `pipeline_runs`
+- `pipeline_run_artifacts`
 - `categories`
 - `category_synonyms`
 - `products`

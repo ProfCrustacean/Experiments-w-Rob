@@ -12,7 +12,9 @@
     "db:migrate": "tsx src/cli/migrate.ts",
     "pipeline": "tsx src/cli/pipeline.ts",
     "pipeline:env": "tsx src/cli/pipeline-from-env.ts",
-    "qa:evaluate": "tsx src/cli/qa-evaluate.ts"
+    "qa:evaluate": "tsx src/cli/qa-evaluate.ts",
+    "report:download": "tsx src/cli/report-download.ts",
+    "report:list": "tsx src/cli/report-list.ts"
   },
   "repository": {
     "type": "git",

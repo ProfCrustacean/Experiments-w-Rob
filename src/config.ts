@@ -21,6 +21,7 @@ const envSchema = z.object({
   OPENAI_RETRY_BASE_MS: z.coerce.number().int().positive().default(750),
   OPENAI_RETRY_MAX_MS: z.coerce.number().int().positive().default(6_000),
   QA_SAMPLE_SIZE: z.coerce.number().int().positive().default(200),
+  ARTIFACT_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
   OUTPUT_DIR: z.string().min(1).default("outputs"),
 });
 

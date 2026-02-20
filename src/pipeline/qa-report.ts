@@ -63,7 +63,13 @@ export async function writeQAReport(input: {
     attributeValues: Record<string, unknown>;
   }>;
   sampleSize: number;
-}): Promise<{ filePath: string; sampledRows: number; totalRows: number }> {
+}): Promise<{
+  filePath: string;
+  fileName: string;
+  sampledRows: number;
+  totalRows: number;
+  csvContent: string;
+}> {
   await mkdir(input.outputDir, { recursive: true });
 
   const sampled = sampleWithoutReplacement(input.rows, input.sampleSize);
@@ -80,12 +86,15 @@ export async function writeQAReport(input: {
 
   const fileName = `qa_report_${input.runId}.csv`;
   const filePath = path.join(input.outputDir, fileName);
-  await writeFile(filePath, stringifyCsv(reportRows), "utf8");
+  const csvContent = stringifyCsv(reportRows);
+  await writeFile(filePath, csvContent, "utf8");
 
   return {
     filePath,
+    fileName,
     sampledRows: reportRows.length,
     totalRows: input.rows.length,
+    csvContent,
   };
 }
 
