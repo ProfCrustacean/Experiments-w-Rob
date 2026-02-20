@@ -24,6 +24,7 @@ const envSchema = z.object({
   ARTIFACT_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
   TRACE_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
   TRACE_FLUSH_BATCH_SIZE: z.coerce.number().int().positive().default(25),
+  STALE_RUN_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(180),
   OUTPUT_DIR: z.string().min(1).default("outputs"),
 });
 

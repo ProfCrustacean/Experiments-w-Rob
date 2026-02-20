@@ -22,6 +22,7 @@ import {
   createPipelineRun,
   finalizePipelineRun,
   insertRunLogBatch,
+  recoverStaleRunningRuns,
   upsertRunArtifact,
   upsertCategoryDrafts,
   upsertProducts,
@@ -204,6 +205,16 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
   validateSamplingInput(sampleParts, samplePartIndex);
 
   await runMigrations();
+  const staleRunsRecovered = await recoverStaleRunningRuns({
+    storeId: input.storeId,
+    staleAfterMinutes: config.STALE_RUN_TIMEOUT_MINUTES,
+  });
+  if (staleRunsRecovered > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[stale_runs] recovered ${staleRunsRecovered} stale running run(s) older than ${config.STALE_RUN_TIMEOUT_MINUTES} minutes for store ${input.storeId}`,
+    );
+  }
 
   const ingestStart = Date.now();
   const sourceRows = await readCatalogFile(input.inputPath);
@@ -776,6 +787,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         trace_event_count: traceStats.trace_event_count,
         trace_openai_event_count: traceStats.trace_openai_event_count,
         trace_flush_error_count: traceStats.trace_flush_error_count,
+        stale_runs_recovered_at_start: staleRunsRecovered,
         openai_enabled: usingOpenAI,
         attribute_batch_count: attributeBatchCount,
         attribute_batch_failure_count: attributeBatchFailureCount,
@@ -823,6 +835,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         trace_event_count: traceStats.trace_event_count,
         trace_openai_event_count: traceStats.trace_openai_event_count,
         trace_flush_error_count: traceStats.trace_flush_error_count,
+        stale_runs_recovered_at_start: staleRunsRecovered,
       },
     });
 

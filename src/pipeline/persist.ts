@@ -83,6 +83,33 @@ export async function finalizePipelineRun(input: {
   );
 }
 
+export async function recoverStaleRunningRuns(input: {
+  storeId: string;
+  staleAfterMinutes: number;
+}): Promise<number> {
+  const pool = getPool();
+  const result = await pool.query(
+    `
+      UPDATE pipeline_runs
+      SET status = 'failed',
+          finished_at = COALESCE(finished_at, NOW()),
+          stats_json = COALESCE(stats_json, '{}'::jsonb)
+            || jsonb_build_object(
+              'error_message', 'stale_run_recovered_after_interrupt',
+              'stale_recovered_at', NOW(),
+              'stale_timeout_minutes', $2::int,
+              'recovered_by', 'auto_stale_recovery'
+            )
+      WHERE store_id = $1
+        AND status = 'running'
+        AND started_at <= NOW() - (($2::text || ' minutes')::interval)
+    `,
+    [input.storeId, input.staleAfterMinutes],
+  );
+
+  return result.rowCount ?? 0;
+}
+
 export async function upsertRunArtifact(input: {
   runId: string;
   artifactKey: RunArtifactKey;

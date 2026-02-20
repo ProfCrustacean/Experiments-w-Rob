@@ -43,6 +43,7 @@ Report retention:
 - `ARTIFACT_RETENTION_HOURS` (default `24`)
 - `TRACE_RETENTION_HOURS` (default `24`)
 - `TRACE_FLUSH_BATCH_SIZE` (default `25`)
+- `STALE_RUN_TIMEOUT_MINUTES` (default `180`, auto-marks abandoned `running` runs as `failed`)
 
 ## Commands
 
