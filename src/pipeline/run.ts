@@ -257,6 +257,12 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
   });
 
   try {
+    if (!config.OPENAI_API_KEY) {
+      throw new Error(
+        "OPENAI_API_KEY is missing. OpenAI mode is required for this pipeline run.",
+      );
+    }
+
     const configSnapshot = {
       llm_model: config.LLM_MODEL,
       embedding_model: config.EMBEDDING_MODEL,
@@ -281,7 +287,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       input_file_name: path.basename(input.inputPath),
       sample_parts: sampleParts,
       sample_part_index: samplePartIndex,
-      openai_enabled: Boolean(config.OPENAI_API_KEY),
+      openai_enabled: true,
       config: configSnapshot,
     });
 
@@ -317,18 +323,6 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
     const { embeddingProvider, llmProvider, usingOpenAI, openAIProvider } = createProviders(
       openAITelemetry,
     );
-
-    if (!usingOpenAI) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        "OPENAI_API_KEY not found. Using deterministic fallback provider for category generation and vectors.",
-      );
-      logger.warn(
-        "pipeline",
-        "run.fallback_provider",
-        "OPENAI_API_KEY is missing; deterministic fallback provider is active.",
-      );
-    }
 
     logger.info("pipeline", "stage.started", "Starting categorization stage.", {
       stage_name: "categorization",

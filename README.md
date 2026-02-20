@@ -28,7 +28,7 @@ cp .env.example .env
 Set at minimum:
 
 - `DATABASE_URL`
-- `OPENAI_API_KEY` (optional but recommended; fallback mode works without it)
+- `OPENAI_API_KEY` (required; runs fail fast if missing)
 
 Useful throughput controls:
 
