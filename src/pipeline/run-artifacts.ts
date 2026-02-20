@@ -40,6 +40,9 @@ interface FullExportCsvRow {
   availability: string;
   predicted_category: string;
   category_confidence: string;
+  category_margin: string;
+  auto_decision: string;
+  confidence_reasons: string;
   needs_review: string;
   review_reasons: string;
   key_attributes: string;
@@ -57,6 +60,9 @@ interface FullExportHumanRow {
   Disponibilidade: string;
   "Categoria sugerida": string;
   "Confianca categoria": string;
+  "Margem categoria": string;
+  "Decisao automatica": string;
+  "Razoes confianca": string;
   "Precisa revisao": string;
   "Motivos revisao": string;
   "Atributos chave": string;
@@ -95,6 +101,9 @@ function stringifyCsvRows(rows: FullExportCsvRow[]): string {
     "availability",
     "predicted_category",
     "category_confidence",
+    "category_margin",
+    "auto_decision",
+    "confidence_reasons",
     "needs_review",
     "review_reasons",
     "key_attributes",
@@ -148,7 +157,9 @@ function buildProductRows(input: {
     const attributeConfidence = enrichment?.attributeConfidence ?? {};
     const keyAttributes = getKeyAttributesText(attributeValues);
     const reasons = enrichment?.uncertaintyReasons?.join(" | ") ?? "";
+    const confidenceReasons = enrichment?.confidenceReasons?.join(" | ") ?? "";
     const confidence = enrichment?.categoryConfidence ?? 0;
+    const margin = enrichment?.categoryMargin ?? 0;
 
     const csvRow: FullExportCsvRow = {
       source_sku: product.sourceSku,
@@ -158,6 +169,9 @@ function buildProductRows(input: {
       availability: product.availability ?? "",
       predicted_category: categoryName,
       category_confidence: toFixedConfidence(confidence),
+      category_margin: toFixedConfidence(margin),
+      auto_decision: enrichment?.autoDecision ?? "review",
+      confidence_reasons: confidenceReasons,
       needs_review: String(enrichment?.needsReview ?? true),
       review_reasons: reasons,
       key_attributes: keyAttributes,
@@ -177,6 +191,9 @@ function buildProductRows(input: {
       Disponibilidade: csvRow.availability,
       "Categoria sugerida": csvRow.predicted_category,
       "Confianca categoria": csvRow.category_confidence,
+      "Margem categoria": csvRow.category_margin,
+      "Decisao automatica": csvRow.auto_decision,
+      "Razoes confianca": csvRow.confidence_reasons,
       "Precisa revisao": csvRow.needs_review,
       "Motivos revisao": csvRow.review_reasons,
       "Atributos chave": csvRow.key_attributes,
@@ -197,6 +214,20 @@ function buildSummaryRows(input: {
   processedCount: number;
   categoryCount: number;
   needsReviewCount: number;
+  autoAcceptedCount: number;
+  autoAcceptedRate: number;
+  fallbackCategoryCount: number;
+  fallbackCategoryRate: number;
+  categoryContradictionCount: number;
+  attributeValidationFailCount: number;
+  categoryConfidenceHistogram: Record<string, number>;
+  topConfusionAlerts: Array<{
+    category_slug: string;
+    affected_count: number;
+    low_margin_count: number;
+    contradiction_count: number;
+    fallback_count: number;
+  }>;
   stageTimingsMs: Record<string, number>;
   startedAt: Date;
   finishedAt: Date;
@@ -223,6 +254,23 @@ function buildSummaryRows(input: {
     { campo: "category_count", valor: String(input.categoryCount) },
     { campo: "needs_review_count", valor: String(input.needsReviewCount) },
     { campo: "needs_review_rate", valor: reviewRate.toFixed(4) },
+    { campo: "auto_accepted_count", valor: String(input.autoAcceptedCount) },
+    { campo: "auto_accepted_rate", valor: input.autoAcceptedRate.toFixed(4) },
+    { campo: "fallback_category_count", valor: String(input.fallbackCategoryCount) },
+    { campo: "fallback_category_rate", valor: input.fallbackCategoryRate.toFixed(4) },
+    { campo: "category_contradiction_count", valor: String(input.categoryContradictionCount) },
+    {
+      campo: "attribute_validation_fail_count",
+      valor: String(input.attributeValidationFailCount),
+    },
+    {
+      campo: "category_confidence_histogram",
+      valor: safeJsonString(input.categoryConfidenceHistogram),
+    },
+    {
+      campo: "top_confusion_alerts",
+      valor: safeJsonString(input.topConfusionAlerts),
+    },
     { campo: "openai_enabled", valor: String(input.openAIEnabled) },
     {
       campo: "openai_retry_count",
@@ -276,6 +324,9 @@ function buildXlsxBuffer(input: {
     "Disponibilidade",
     "Categoria sugerida",
     "Confianca categoria",
+    "Margem categoria",
+    "Decisao automatica",
+    "Razoes confianca",
     "Precisa revisao",
     "Motivos revisao",
     "Atributos chave",
@@ -314,6 +365,20 @@ export function buildRunArtifacts(input: {
   qaReportCsvContent: string;
   categoryCount: number;
   needsReviewCount: number;
+  autoAcceptedCount: number;
+  autoAcceptedRate: number;
+  fallbackCategoryCount: number;
+  fallbackCategoryRate: number;
+  categoryContradictionCount: number;
+  attributeValidationFailCount: number;
+  categoryConfidenceHistogram: Record<string, number>;
+  topConfusionAlerts: Array<{
+    category_slug: string;
+    affected_count: number;
+    low_margin_count: number;
+    contradiction_count: number;
+    fallback_count: number;
+  }>;
   stageTimingsMs: Record<string, number>;
   openAIEnabled: boolean;
   openAIRequestStats: unknown;
@@ -339,6 +404,14 @@ export function buildRunArtifacts(input: {
     processedCount: input.products.length,
     categoryCount: input.categoryCount,
     needsReviewCount: input.needsReviewCount,
+    autoAcceptedCount: input.autoAcceptedCount,
+    autoAcceptedRate: input.autoAcceptedRate,
+    fallbackCategoryCount: input.fallbackCategoryCount,
+    fallbackCategoryRate: input.fallbackCategoryRate,
+    categoryContradictionCount: input.categoryContradictionCount,
+    attributeValidationFailCount: input.attributeValidationFailCount,
+    categoryConfidenceHistogram: input.categoryConfidenceHistogram,
+    topConfusionAlerts: input.topConfusionAlerts,
     stageTimingsMs: input.stageTimingsMs,
     startedAt: input.startedAt,
     finishedAt: input.finishedAt,

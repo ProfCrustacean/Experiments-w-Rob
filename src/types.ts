@@ -45,6 +45,13 @@ export interface ProductEnrichment {
   sourceSku: string;
   categorySlug: string;
   categoryConfidence: number;
+  categoryTop2Confidence: number;
+  categoryMargin: number;
+  autoDecision: "auto" | "review";
+  confidenceReasons: string[];
+  isFallbackCategory: boolean;
+  categoryContradictionCount: number;
+  attributeValidationFailCount: number;
   attributeValues: Record<string, string | number | boolean | null>;
   attributeConfidence: Record<string, number>;
   needsReview: boolean;
@@ -137,6 +144,21 @@ export interface BatchAttributeExtractionInput {
   products: ProductAttributeExtractionInput[];
 }
 
+export interface CategoryDisambiguationInput {
+  product: Pick<RawCatalogRow, "title" | "description" | "brand">;
+  candidates: Array<{
+    slug: string;
+    name_pt: string;
+    description_pt: string;
+  }>;
+}
+
+export interface CategoryDisambiguationOutput {
+  categorySlug: string | null;
+  confidence: number;
+  reason: string;
+}
+
 export interface EmbeddingProvider {
   dimensions: number;
   embedMany(texts: string[]): Promise<number[][]>;
@@ -156,4 +178,39 @@ export interface LLMProvider {
   extractProductAttributesBatch(
     input: BatchAttributeExtractionInput,
   ): Promise<Record<string, AttributeExtractionLLMOutput>>;
+  disambiguateCategory(
+    input: CategoryDisambiguationInput,
+  ): Promise<CategoryDisambiguationOutput>;
+}
+
+export interface TaxonomyCategory {
+  slug: string;
+  name_pt: string;
+  description_pt: string;
+  synonyms: string[];
+  prototype_terms: string[];
+  is_fallback: boolean;
+  default_attributes: CategoryAttribute[];
+}
+
+export interface TaxonomyCategoryMatchRule {
+  slug: string;
+  include_any: string[];
+  include_all: string[];
+  exclude_any: string[];
+  strong_exclude_any: string[];
+  high_risk: boolean;
+}
+
+export interface TaxonomyAttributePolicy {
+  min?: number;
+  max?: number;
+  allow_negative?: boolean;
+  pack_context_required?: boolean;
+}
+
+export interface TaxonomyAttributePolicyConfig {
+  schema_version: string;
+  attribute_policies: Record<string, TaxonomyAttributePolicy>;
+  category_attribute_overrides: Record<string, Record<string, TaxonomyAttributePolicy>>;
 }

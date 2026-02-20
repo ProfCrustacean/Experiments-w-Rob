@@ -725,3 +725,71 @@ export async function updateRunStatusFromQAEvaluation(input: {
     },
   });
 }
+
+export interface QaFeedbackImportRow {
+  runId: string;
+  sourceSku: string;
+  predictedCategory: string;
+  correctedCategory: string | null;
+  correctedAttributesJson: Record<string, unknown>;
+  reviewStatus: "pass" | "fail" | "skip";
+  reviewNotes: string | null;
+}
+
+export async function upsertQaFeedbackRows(rows: QaFeedbackImportRow[]): Promise<number> {
+  if (rows.length === 0) {
+    return 0;
+  }
+
+  const pool = getPool();
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    let upserted = 0;
+    for (const row of rows) {
+      const result = await client.query(
+        `
+          INSERT INTO pipeline_qa_feedback (
+            run_id,
+            source_sku,
+            predicted_category,
+            corrected_category,
+            corrected_attributes_json,
+            review_status,
+            review_notes
+          )
+          VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+          ON CONFLICT (run_id, source_sku)
+          DO UPDATE SET
+            predicted_category = EXCLUDED.predicted_category,
+            corrected_category = EXCLUDED.corrected_category,
+            corrected_attributes_json = EXCLUDED.corrected_attributes_json,
+            review_status = EXCLUDED.review_status,
+            review_notes = EXCLUDED.review_notes,
+            imported_at = NOW()
+        `,
+        [
+          row.runId,
+          row.sourceSku,
+          row.predictedCategory,
+          row.correctedCategory,
+          JSON.stringify(row.correctedAttributesJson),
+          row.reviewStatus,
+          row.reviewNotes,
+        ],
+      );
+
+      upserted += result.rowCount ?? 0;
+    }
+
+    await client.query("COMMIT");
+    return upserted;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}

@@ -1,6 +1,8 @@
 import type {
   AttributeExtractionLLMOutput,
   BatchAttributeExtractionInput,
+  CategoryDisambiguationInput,
+  CategoryDisambiguationOutput,
   CategoryProfileLLMOutput,
   EmbeddingProvider,
   LLMProvider,
@@ -110,5 +112,30 @@ export class FallbackProvider implements EmbeddingProvider, LLMProvider {
     }
 
     return output;
+  }
+
+  async disambiguateCategory(
+    input: CategoryDisambiguationInput,
+  ): Promise<CategoryDisambiguationOutput> {
+    const merged = normalizeText(
+      `${input.product.title} ${input.product.description ?? ""} ${input.product.brand ?? ""}`,
+    );
+
+    for (const candidate of input.candidates) {
+      const normalizedName = normalizeText(candidate.name_pt);
+      if (normalizedName && merged.includes(normalizedName)) {
+        return {
+          categorySlug: candidate.slug,
+          confidence: 0.82,
+          reason: "fallback_name_match",
+        };
+      }
+    }
+
+    return {
+      categorySlug: input.candidates[0]?.slug ?? null,
+      confidence: input.candidates.length > 0 ? 0.58 : 0,
+      reason: "fallback_first_candidate",
+    };
   }
 }

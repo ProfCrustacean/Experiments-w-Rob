@@ -9,8 +9,14 @@ export interface QAReportRow {
   source_sku: string;
   title: string;
   predicted_category: string;
+  predicted_category_confidence: string;
+  predicted_category_margin: string;
+  auto_decision: "auto" | "review";
+  top_confidence_reasons: string;
   needs_review: boolean;
   key_attributes: string;
+  corrected_category: string;
+  corrected_attributes_json: string;
   review_status: string;
   review_notes: string;
 }
@@ -28,8 +34,14 @@ function stringifyCsv(rows: QAReportRow[]): string {
     "source_sku",
     "title",
     "predicted_category",
+    "predicted_category_confidence",
+    "predicted_category_margin",
+    "auto_decision",
+    "top_confidence_reasons",
     "needs_review",
     "key_attributes",
+    "corrected_category",
+    "corrected_attributes_json",
     "review_status",
     "review_notes",
   ];
@@ -40,8 +52,14 @@ function stringifyCsv(rows: QAReportRow[]): string {
       row.source_sku,
       row.title,
       row.predicted_category,
+      row.predicted_category_confidence,
+      row.predicted_category_margin,
+      row.auto_decision,
+      row.top_confidence_reasons,
       String(row.needs_review),
       row.key_attributes,
+      row.corrected_category,
+      row.corrected_attributes_json,
       row.review_status,
       row.review_notes,
     ]
@@ -59,6 +77,10 @@ export async function writeQAReport(input: {
     sourceSku: string;
     title: string;
     predictedCategory: string;
+    predictedCategoryConfidence: number;
+    predictedCategoryMargin: number;
+    autoDecision: "auto" | "review";
+    topConfidenceReasons: string[];
     needsReview: boolean;
     attributeValues: Record<string, unknown>;
   }>;
@@ -78,8 +100,14 @@ export async function writeQAReport(input: {
     source_sku: row.sourceSku,
     title: row.title,
     predicted_category: row.predictedCategory,
+    predicted_category_confidence: Number(row.predictedCategoryConfidence).toFixed(4),
+    predicted_category_margin: Number(row.predictedCategoryMargin).toFixed(4),
+    auto_decision: row.autoDecision,
+    top_confidence_reasons: row.topConfidenceReasons.join(" | "),
     needs_review: row.needsReview,
     key_attributes: safeJsonString(row.attributeValues),
+    corrected_category: "",
+    corrected_attributes_json: "",
     review_status: "",
     review_notes: "",
   }));

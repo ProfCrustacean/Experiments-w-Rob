@@ -5,6 +5,7 @@ import type {
   LLMProvider,
   NormalizedCatalogProduct,
   ProductEnrichment,
+  TaxonomyAttributePolicy,
 } from "../types.js";
 import {
   detectFormat,
@@ -13,6 +14,12 @@ import {
   detectNumericQuantity,
   normalizeText,
 } from "../utils/text.js";
+import { loadTaxonomy } from "../taxonomy/load.js";
+
+const PACK_CONTEXT_REGEX = /(pack|caixa|conjunto|kit|unid|unidades|pcs|pecas|x\s*\d+)/;
+const SHEET_CONTEXT_REGEX = /(folhas|fls|resma|caderno|bloco|recarga)/;
+
+const taxonomy = loadTaxonomy();
 
 function parseNumber(text: string, regex: RegExp): number | null {
   const match = normalizeText(text).match(regex);
@@ -55,8 +62,8 @@ function inferAttributeWithRules(
       return { value: packCount, confidence: packCount ? 0.88 : 0.1 };
     }
     case "sheet_count": {
-      const sheetCount = parseNumber(text, /(\d{2,3})\s*(?:folhas|fls)/);
-      return { value: sheetCount, confidence: sheetCount ? 0.86 : 0.1 };
+      const sheetCount = parseNumber(text, /(\d{2,4})\s*(?:folhas|fls)/);
+      return { value: sheetCount, confidence: sheetCount ? 0.88 : 0.1 };
     }
     case "point_size_mm": {
       const pointSize = parseNumber(text, /(\d(?:[.,]\d)?)\s*mm/);
@@ -64,14 +71,14 @@ function inferAttributeWithRules(
     }
     case "hardness": {
       const hardness = text.match(/\b(HB|2B|B|H)\b/i)?.[1]?.toUpperCase() ?? null;
-      return { value: hardness, confidence: hardness ? 0.84 : 0.1 };
+      return { value: hardness, confidence: hardness ? 0.9 : 0.1 };
     }
     case "glue_type": {
       if (/(bastao|stick)/.test(text)) {
-        return { value: "bastao", confidence: 0.85 };
+        return { value: "bastao", confidence: 0.9 };
       }
       if (/(liquida|liquido|liquid)/.test(text)) {
-        return { value: "liquida", confidence: 0.85 };
+        return { value: "liquida", confidence: 0.9 };
       }
       return { value: null, confidence: 0.1 };
     }
@@ -84,7 +91,7 @@ function inferAttributeWithRules(
       return { value, confidence: value !== null ? 0.86 : 0.1 };
     }
     case "capacity_l": {
-      const capacity = parseNumber(text, /(\d{1,3})\s*(?:l|litros)/);
+      const capacity = parseNumber(text, /(\d{1,3}(?:[.,]\d+)?)\s*(?:l|litros?)/);
       return { value: capacity, confidence: capacity ? 0.84 : 0.1 };
     }
     case "tip_safety": {
@@ -92,8 +99,20 @@ function inferAttributeWithRules(
       return { value: tipSafety, confidence: tipSafety !== null ? 0.82 : 0.1 };
     }
     case "length_cm": {
-      const length = parseNumber(text, /(\d{1,3})\s*cm/);
+      const length = parseNumber(text, /(\d{1,3}(?:[.,]\d+)?)\s*cm/);
       return { value: length, confidence: length ? 0.83 : 0.1 };
+    }
+    case "ink_type": {
+      if (/gel/.test(text)) {
+        return { value: "gel", confidence: 0.9 };
+      }
+      if (/(esferografica|esferografico)/.test(text)) {
+        return { value: "esferografica", confidence: 0.88 };
+      }
+      if (/roller/.test(text)) {
+        return { value: "roller", confidence: 0.88 };
+      }
+      return { value: null, confidence: 0.1 };
     }
     default:
       return { value: null, confidence: 0.05 };
@@ -166,6 +185,94 @@ function hasAnyAttributeValue(values: Record<string, string | number | boolean |
   return Object.values(values).some((value) => value !== null && value !== "");
 }
 
+function getAttributePolicy(categorySlug: string, attributeKey: string): TaxonomyAttributePolicy | null {
+  const categoryPolicies = taxonomy.attributePolicies.category_attribute_overrides?.[categorySlug] ?? {};
+  if (categoryPolicies[attributeKey]) {
+    return categoryPolicies[attributeKey];
+  }
+  return taxonomy.attributePolicies.attribute_policies?.[attributeKey] ?? null;
+}
+
+function applyNumberPolicy(
+  categorySlug: string,
+  attribute: CategoryAttribute,
+  value: number,
+  productText: string,
+): { value: number | null; reasons: string[]; remapSheetCount: number | null } {
+  const policy = getAttributePolicy(categorySlug, attribute.key);
+  const reasons: string[] = [];
+  let remapSheetCount: number | null = null;
+
+  if (policy) {
+    if (policy.allow_negative === false && value < 0) {
+      reasons.push(`policy_negative_${attribute.key}`);
+      return { value: null, reasons, remapSheetCount };
+    }
+
+    if (typeof policy.min === "number" && value < policy.min) {
+      reasons.push(`policy_min_${attribute.key}`);
+      return { value: null, reasons, remapSheetCount };
+    }
+
+    if (typeof policy.max === "number" && value > policy.max) {
+      reasons.push(`policy_max_${attribute.key}`);
+      return { value: null, reasons, remapSheetCount };
+    }
+
+    if (policy.pack_context_required && attribute.key === "pack_count" && !PACK_CONTEXT_REGEX.test(productText)) {
+      if (SHEET_CONTEXT_REGEX.test(productText) && value >= 20) {
+        remapSheetCount = value;
+        reasons.push("pack_count_remapped_to_sheet_count");
+      } else {
+        reasons.push("policy_pack_context_missing");
+      }
+      return { value: null, reasons, remapSheetCount };
+    }
+  }
+
+  if (attribute.key === "pack_count" && value > 80 && SHEET_CONTEXT_REGEX.test(productText) && !PACK_CONTEXT_REGEX.test(productText)) {
+    remapSheetCount = value;
+    reasons.push("pack_count_suspect_sheet_count");
+    return { value: null, reasons, remapSheetCount };
+  }
+
+  return { value, reasons, remapSheetCount };
+}
+
+function applyCategoryAttributeConsistency(
+  categorySlug: string,
+  attributeKey: string,
+  value: string | number | boolean | null,
+): { value: string | number | boolean | null; reasons: string[] } {
+  const reasons: string[] = [];
+
+  if (value === null || value === "") {
+    return { value, reasons };
+  }
+
+  if (categorySlug.startsWith("caneta") && attributeKey === "hardness") {
+    reasons.push("contradiction_hardness_for_caneta");
+    return { value: null, reasons };
+  }
+
+  if ((categorySlug === "lapis-hb" || categorySlug === "lapis-cor") && attributeKey === "ink_type") {
+    reasons.push("contradiction_ink_type_for_lapis");
+    return { value: null, reasons };
+  }
+
+  if (categorySlug === "cola-bastao" && attributeKey === "glue_type" && value !== "bastao") {
+    reasons.push("contradiction_glue_type_bastao");
+    return { value: null, reasons };
+  }
+
+  if (categorySlug === "cola-liquida" && attributeKey === "glue_type" && value !== "liquida") {
+    reasons.push("contradiction_glue_type_liquida");
+    return { value: null, reasons };
+  }
+
+  return { value, reasons };
+}
+
 export async function enrichProduct(
   product: NormalizedCatalogProduct,
   category: {
@@ -173,9 +280,16 @@ export async function enrichProduct(
     attributes: CategoryAttributeSchema;
     description: string;
     confidenceScore: number;
+    top2Confidence?: number;
+    margin?: number;
+    autoDecision?: "auto" | "review";
+    confidenceReasons?: string[];
+    isFallbackCategory?: boolean;
+    contradictionCount?: number;
   },
   llm: LLMProvider | null,
   confidenceThreshold: number,
+  attributeAutoMinConfidence = 0.7,
 ): Promise<ProductEnrichment> {
   let llmOutput: AttributeExtractionLLMOutput | null = null;
   let fallbackReason: string | undefined;
@@ -203,6 +317,7 @@ export async function enrichProduct(
     category,
     llmOutput,
     confidenceThreshold,
+    attributeAutoMinConfidence,
     fallbackReason ? { fallbackReason } : undefined,
   );
 }
@@ -214,13 +329,22 @@ export function enrichProductWithSignals(
     attributes: CategoryAttributeSchema;
     description: string;
     confidenceScore: number;
+    top2Confidence?: number;
+    margin?: number;
+    autoDecision?: "auto" | "review";
+    confidenceReasons?: string[];
+    isFallbackCategory?: boolean;
+    contradictionCount?: number;
   },
   llmOutput: AttributeExtractionLLMOutput | null,
   confidenceThreshold: number,
+  attributeAutoMinConfidence = 0.7,
   options?: {
     fallbackReason?: string;
   },
 ): ProductEnrichment {
+  const productText = `${product.normalizedTitle} ${product.normalizedDescription}`;
+
   const ruleValues: Record<string, string | number | boolean | null> = {};
   const ruleConfidence: Record<string, number> = {};
 
@@ -240,39 +364,75 @@ export function enrichProductWithSignals(
   for (const attribute of category.attributes.attributes) {
     const key = attribute.key;
 
-    const llmValue = coerceValue(attribute, llmValues[key]);
-    const llmScore = sanitizeConfidence(llmConfidence[key]);
-
     const ruleValue = coerceValue(attribute, ruleValues[key]);
     const ruleScore = sanitizeConfidence(ruleConfidence[key]);
 
-    if (ruleValue !== null && ruleScore >= llmScore) {
-      attributeValues[key] = ruleValue;
-      attributeConfidence[key] = ruleScore;
-    } else {
-      attributeValues[key] = llmValue;
-      attributeConfidence[key] = llmScore;
+    const llmValue = coerceValue(attribute, llmValues[key]);
+    const llmScore = sanitizeConfidence(llmConfidence[key]);
+
+    // Deterministic parser is primary; LLM only fills missing values.
+    let chosenValue = ruleValue;
+    let chosenConfidence = ruleScore;
+
+    if ((chosenValue === null || chosenValue === "") && llmValue !== null && llmValue !== "") {
+      chosenValue = llmValue;
+      chosenConfidence = llmScore;
     }
 
-    if (attribute.required && (attributeValues[key] === null || attributeValues[key] === "")) {
-      reasons.push(`missing_required_${key}`);
-    }
-
-    if (
-      attribute.type === "enum" &&
-      attributeValues[key] !== null &&
-      attribute.allowed_values &&
-      attribute.allowed_values.length > 0
-    ) {
-      const normalized = normalizeText(String(attributeValues[key]));
+    if (attribute.type === "enum" && chosenValue !== null && attribute.allowed_values && attribute.allowed_values.length > 0) {
+      const normalized = normalizeText(String(chosenValue));
       const valid = attribute.allowed_values.some(
         (allowed) => normalizeText(allowed) === normalized,
       );
       if (!valid) {
         reasons.push(`invalid_enum_${key}`);
-        attributeValues[key] = null;
-        attributeConfidence[key] = Math.min(attributeConfidence[key], 0.2);
+        chosenValue = null;
+        chosenConfidence = Math.min(chosenConfidence, 0.2);
       }
+    }
+
+    if (typeof chosenValue === "number") {
+      const policyValidation = applyNumberPolicy(category.slug, attribute, chosenValue, productText);
+      chosenValue = policyValidation.value;
+      for (const reason of policyValidation.reasons) {
+        reasons.push(reason);
+      }
+
+      if (policyValidation.remapSheetCount !== null) {
+        const hasSheetCountAttribute = category.attributes.attributes.some((item) => item.key === "sheet_count");
+        if (hasSheetCountAttribute && (attributeValues.sheet_count === undefined || attributeValues.sheet_count === null)) {
+          attributeValues.sheet_count = policyValidation.remapSheetCount;
+          attributeConfidence.sheet_count = Math.max(0.7, chosenConfidence);
+        }
+      }
+    }
+
+    const consistency = applyCategoryAttributeConsistency(category.slug, key, chosenValue);
+    chosenValue = consistency.value;
+    for (const reason of consistency.reasons) {
+      reasons.push(reason);
+    }
+
+    if (key === "ruling" && chosenValue !== null) {
+      if (chosenValue === "quadriculado" && /pautado/.test(productText) && !/quadriculado/.test(productText)) {
+        reasons.push("contradiction_ruling_text");
+        chosenValue = null;
+      }
+      if (chosenValue === "pautado" && /quadriculado|milimetrado/.test(productText) && !/pautado/.test(productText)) {
+        reasons.push("contradiction_ruling_text");
+        chosenValue = null;
+      }
+    }
+
+    if (chosenValue !== null && chosenConfidence < attributeAutoMinConfidence) {
+      reasons.push(`low_attribute_confidence_${key}`);
+    }
+
+    attributeValues[key] = chosenValue;
+    attributeConfidence[key] = chosenConfidence;
+
+    if (attribute.required && (chosenValue === null || chosenValue === "")) {
+      reasons.push(`missing_required_${key}`);
     }
   }
 
@@ -284,19 +444,46 @@ export function enrichProductWithSignals(
     reasons.push("low_category_confidence");
   }
 
+  if (category.autoDecision === "review") {
+    reasons.push("category_review_gate");
+  }
+
+  if (category.confidenceReasons && category.confidenceReasons.length > 0) {
+    reasons.push(...category.confidenceReasons);
+  }
+
   if (options?.fallbackReason) {
     reasons.push(options.fallbackReason);
   }
 
-  const needsReview = reasons.length > 0;
+  const uniqueReasons = [...new Set(reasons)];
+  const attributeValidationFailCount = uniqueReasons.filter(
+    (reason) =>
+      reason.startsWith("invalid_") ||
+      reason.startsWith("policy_") ||
+      reason.startsWith("contradiction_") ||
+      reason.startsWith("pack_count_"),
+  ).length;
+
+  const needsReview =
+    category.autoDecision === "review" ||
+    uniqueReasons.length > 0 ||
+    attributeValidationFailCount > 0;
 
   return {
     sourceSku: product.sourceSku,
     categorySlug: category.slug,
     categoryConfidence: category.confidenceScore,
+    categoryTop2Confidence: category.top2Confidence ?? 0,
+    categoryMargin: category.margin ?? Math.max(0, category.confidenceScore),
+    autoDecision: category.autoDecision ?? (needsReview ? "review" : "auto"),
+    confidenceReasons: category.confidenceReasons ?? [],
+    isFallbackCategory: Boolean(category.isFallbackCategory),
+    categoryContradictionCount: category.contradictionCount ?? 0,
+    attributeValidationFailCount,
     attributeValues,
     attributeConfidence,
     needsReview,
-    uncertaintyReasons: reasons,
+    uncertaintyReasons: uniqueReasons,
   };
 }

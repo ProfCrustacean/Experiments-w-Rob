@@ -11,10 +11,10 @@ import type {
   ProductEnrichment,
 } from "../types.js";
 import { runMigrations } from "../db/migrate.js";
-import { clusterProducts } from "./categorization.js";
+import { assignCategoriesForProducts } from "./category-assignment.js";
 import { buildEmbeddingText, generateEmbeddingsForItems } from "./embedding.js";
 import { enrichProductWithSignals } from "./enrichment.js";
-import { generateCategoryDrafts } from "./category-generation.js";
+import { buildCategoryDraftsFromTaxonomyAssignments } from "./taxonomy-category-drafts.js";
 import { deduplicateRows, normalizeRows, readCatalogFile } from "./ingest.js";
 import {
   cleanupExpiredRunArtifacts,
@@ -33,6 +33,7 @@ import { buildRunArtifacts } from "./run-artifacts.js";
 import { FallbackProvider } from "../services/fallback.js";
 import { OpenAIProvider, type OpenAITelemetryCallback } from "../services/openai.js";
 import { RunLogger } from "../logging/run-logger.js";
+import { loadTaxonomy } from "../taxonomy/load.js";
 
 const EMBEDDING_DIMENSIONS = 1536;
 
@@ -59,12 +60,23 @@ interface CategoryContext {
   };
   description: string;
   confidenceScore: number;
+  top2Confidence: number;
+  margin: number;
+  autoDecision: "auto" | "review";
+  confidenceReasons: string[];
+  isFallbackCategory: boolean;
+  contradictionCount: number;
+}
+
+interface AttributeBatchItem {
+  product: NormalizedCatalogProduct;
+  context: CategoryContext;
 }
 
 interface AttributeBatchTask {
   categorySlug: string;
-  categoryContext: CategoryContext;
-  items: NormalizedCatalogProduct[];
+  categoryContext: Pick<CategoryContext, "slug" | "attributes" | "description">;
+  items: AttributeBatchItem[];
 }
 
 function ensureVectorLength(vector: number[], target: number): number[] {
@@ -191,6 +203,13 @@ function buildMissingCategoryEnrichment(sourceSku: string): ProductEnrichment {
     sourceSku,
     categorySlug: "",
     categoryConfidence: 0,
+    categoryTop2Confidence: 0,
+    categoryMargin: 0,
+    autoDecision: "review",
+    confidenceReasons: ["missing_category"],
+    isFallbackCategory: true,
+    categoryContradictionCount: 0,
+    attributeValidationFailCount: 0,
     attributeValues: {},
     attributeConfidence: {},
     needsReview: true,
@@ -287,6 +306,11 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       openai_max_retries: config.OPENAI_MAX_RETRIES,
       openai_retry_base_ms: config.OPENAI_RETRY_BASE_MS,
       openai_retry_max_ms: config.OPENAI_RETRY_MAX_MS,
+      category_auto_min_confidence: config.CATEGORY_AUTO_MIN_CONFIDENCE,
+      category_auto_min_margin: config.CATEGORY_AUTO_MIN_MARGIN,
+      attribute_auto_min_confidence: config.ATTRIBUTE_AUTO_MIN_CONFIDENCE,
+      high_risk_category_extra_confidence: config.HIGH_RISK_CATEGORY_EXTRA_CONFIDENCE,
+      quality_qa_sample_size: config.QUALITY_QA_SAMPLE_SIZE,
       trace_retention_hours: config.TRACE_RETENTION_HOURS,
       trace_flush_batch_size: config.TRACE_FLUSH_BATCH_SIZE,
       output_dir: config.OUTPUT_DIR,
@@ -340,39 +364,37 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       product_count: partitioned.sampled.length,
     });
     const categorizationStart = Date.now();
-    const { clusters, skuToClusterKey } = clusterProducts(partitioned.sampled);
+    const categoryAssignments = await assignCategoriesForProducts({
+      products: partitioned.sampled,
+      embeddingProvider,
+      llmProvider,
+      autoMinConfidence: config.CATEGORY_AUTO_MIN_CONFIDENCE,
+      autoMinMargin: config.CATEGORY_AUTO_MIN_MARGIN,
+      highRiskExtraConfidence: config.HIGH_RISK_CATEGORY_EXTRA_CONFIDENCE,
+      llmConcurrency: config.CATEGORY_PROFILE_CONCURRENCY,
+    });
+    const taxonomy = loadTaxonomy();
+    const assignedCategoryBySku = new Map<string, string>();
+    for (const [sourceSku, assignment] of categoryAssignments.assignmentsBySku.entries()) {
+      assignedCategoryBySku.set(sourceSku, assignment.categorySlug);
+    }
+    const assignedCategoryCount = new Set(assignedCategoryBySku.values()).size;
     stageTimingsMs.categorization_ms = Date.now() - categorizationStart;
     logger.info("pipeline", "stage.completed", "Categorization stage completed.", {
       stage_name: "categorization",
       elapsed_ms: stageTimingsMs.categorization_ms,
-      cluster_count: clusters.length,
+      category_count: assignedCategoryCount,
+      confidence_histogram: categoryAssignments.confidenceHistogram,
     });
 
     logger.info("pipeline", "stage.started", "Starting category generation stage.", {
       stage_name: "category_generation",
-      cluster_count: clusters.length,
+      category_count: assignedCategoryCount,
     });
     const categoryGenerationStart = Date.now();
-    const { drafts, clusterKeyToSlug } = await generateCategoryDrafts(
-      clusters,
-      llmProvider,
-      config.CATEGORY_PROFILE_CONCURRENCY,
-      (done, total) => {
-        if (shouldLogProgress(done, total)) {
-          // eslint-disable-next-line no-console
-          console.log(`[category_generation] ${done}/${total} completed`);
-          logger.info(
-            "pipeline",
-            "batch.category_profile.completed",
-            "Category profile batch progress updated.",
-            {
-              completed: done,
-              total,
-            },
-          );
-        }
-      },
-    );
+    const drafts = buildCategoryDraftsFromTaxonomyAssignments({
+      assignedCategoryBySku,
+    });
     stageTimingsMs.category_generation_ms = Date.now() - categoryGenerationStart;
     logger.info("pipeline", "stage.completed", "Category generation stage completed.", {
       stage_name: "category_generation",
@@ -392,13 +414,6 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       elapsed_ms: stageTimingsMs.category_upsert_ms,
     });
 
-    const clusterScoreBySku: Record<string, number> = {};
-    for (const cluster of clusters) {
-      for (const [sku, score] of Object.entries(cluster.scoresBySku)) {
-        clusterScoreBySku[sku] = score;
-      }
-    }
-
     logger.info("pipeline", "stage.started", "Starting enrichment stage.", {
       stage_name: "enrichment",
     });
@@ -408,8 +423,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
     const batchedByCategory = new Map<string, AttributeBatchTask>();
 
     for (const product of partitioned.sampled) {
-      const clusterKey = skuToClusterKey[product.sourceSku];
-      const categorySlug = clusterKeyToSlug[clusterKey];
+      const assignment = categoryAssignments.assignmentsBySku.get(product.sourceSku);
+      const categorySlug = assignment?.categorySlug ?? taxonomy.fallbackCategory.slug;
       const category = categoriesBySlug.get(categorySlug);
 
       if (!category) {
@@ -421,7 +436,13 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         slug: category.slug,
         attributes: category.attributes_jsonb,
         description: category.description_pt,
-        confidenceScore: clusterScoreBySku[product.sourceSku] ?? 0,
+        confidenceScore: assignment?.categoryConfidence ?? 0,
+        top2Confidence: assignment?.categoryTop2Confidence ?? 0,
+        margin: assignment?.categoryMargin ?? 0,
+        autoDecision: assignment?.autoDecision ?? "review",
+        confidenceReasons: assignment?.confidenceReasons ?? ["missing_assignment"],
+        isFallbackCategory: assignment?.isFallbackCategory ?? true,
+        contradictionCount: assignment?.categoryContradictionCount ?? 0,
       };
 
       if (!usingOpenAI) {
@@ -430,6 +451,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
           context,
           null,
           config.CONFIDENCE_THRESHOLD,
+          config.ATTRIBUTE_AUTO_MIN_CONFIDENCE,
         );
         enrichmentMap.set(product.sourceSku, enrichment);
         continue;
@@ -437,12 +459,24 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
 
       const existingTask = batchedByCategory.get(category.slug);
       if (existingTask) {
-        existingTask.items.push(product);
+        existingTask.items.push({
+          product,
+          context,
+        });
       } else {
         batchedByCategory.set(category.slug, {
           categorySlug: category.slug,
-          categoryContext: context,
-          items: [product],
+          categoryContext: {
+            slug: context.slug,
+            attributes: context.attributes,
+            description: context.description,
+          },
+          items: [
+            {
+              product,
+              context,
+            },
+          ],
         });
       }
     }
@@ -474,7 +508,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
             logger.debug("pipeline", "batch.attribute.started", "Attribute batch started.", {
               category_slug: task.categorySlug,
               sku_count: task.items.length,
-              source_skus: task.items.map((item) => item.sourceSku),
+              source_skus: task.items.map((item) => item.product.sourceSku),
             });
 
             let outputBySku: Record<string, AttributeExtractionLLMOutput> | null = null;
@@ -484,7 +518,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
                 categoryName: task.categoryContext.attributes.category_name_pt,
                 categoryDescription: task.categoryContext.description,
                 attributeSchema: task.categoryContext.attributes,
-                products: task.items.map((product) => ({
+                products: task.items.map(({ product }) => ({
                   sourceSku: product.sourceSku,
                   product: {
                     title: product.title,
@@ -503,7 +537,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
               });
             }
 
-            for (const product of task.items) {
+            for (const item of task.items) {
+              const { product, context } = item;
               const llmOutput = outputBySku?.[product.sourceSku] ?? null;
               const fallbackReason = llmOutput
                 ? undefined
@@ -517,9 +552,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
 
               const enrichment = enrichProductWithSignals(
                 product,
-                task.categoryContext,
+                context,
                 llmOutput,
                 config.CONFIDENCE_THRESHOLD,
+                config.ATTRIBUTE_AUTO_MIN_CONFIDENCE,
                 fallbackReason ? { fallbackReason } : undefined,
               );
 
@@ -653,6 +689,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         sourceSku: product.sourceSku,
         title: product.title,
         predictedCategory: categoryName,
+        predictedCategoryConfidence: enrichment?.categoryConfidence ?? 0,
+        predictedCategoryMargin: enrichment?.categoryMargin ?? 0,
+        autoDecision: enrichment?.autoDecision ?? "review",
+        topConfidenceReasons: enrichment?.confidenceReasons ?? [],
         needsReview: enrichment?.needsReview ?? true,
         attributeValues: enrichment?.attributeValues ?? {},
       };
@@ -662,7 +702,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       outputDir: config.OUTPUT_DIR,
       runId,
       rows: qaRows,
-      sampleSize: config.QA_SAMPLE_SIZE,
+      sampleSize: config.QUALITY_QA_SAMPLE_SIZE,
     });
     stageTimingsMs.qa_report_ms = Date.now() - qaStart;
     logger.info("pipeline", "stage.completed", "QA report stage completed.", {
@@ -673,6 +713,29 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
     });
 
     const needsReviewCount = qaRows.filter((row) => row.needsReview).length;
+    const autoAcceptedCount = qaRows.filter((row) => row.autoDecision === "auto").length;
+    const fallbackCategoryCount = [...enrichmentMap.values()].filter(
+      (enrichment) => enrichment.isFallbackCategory,
+    ).length;
+    const categoryContradictionCount = [...enrichmentMap.values()].reduce(
+      (sum, enrichment) => sum + enrichment.categoryContradictionCount,
+      0,
+    );
+    const attributeValidationFailCount = [...enrichmentMap.values()].reduce(
+      (sum, enrichment) => sum + enrichment.attributeValidationFailCount,
+      0,
+    );
+    const processedCount = partitioned.sampled.length;
+    const autoAcceptedRate = processedCount === 0 ? 0 : autoAcceptedCount / processedCount;
+    const fallbackCategoryRate = processedCount === 0 ? 0 : fallbackCategoryCount / processedCount;
+    const needsReviewRate = processedCount === 0 ? 0 : needsReviewCount / processedCount;
+    const attributeValidationFailRate =
+      processedCount === 0 ? 0 : attributeValidationFailCount / processedCount;
+    const preQaQualityGatePass =
+      autoAcceptedRate >= 0.7 &&
+      fallbackCategoryRate <= 0.05 &&
+      attributeValidationFailRate <= 0.08 &&
+      needsReviewRate <= 0.3;
 
     const openAIStats = usingOpenAI ? openAIProvider?.getStats() ?? null : null;
     const runFinishedAt = new Date();
@@ -695,6 +758,14 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       qaReportCsvContent: qaResult.csvContent,
       categoryCount: drafts.length,
       needsReviewCount,
+      autoAcceptedCount,
+      autoAcceptedRate,
+      fallbackCategoryCount,
+      fallbackCategoryRate,
+      categoryContradictionCount,
+      attributeValidationFailCount,
+      categoryConfidenceHistogram: categoryAssignments.confidenceHistogram,
+      topConfusionAlerts: categoryAssignments.topConfusionAlerts,
       stageTimingsMs,
       openAIEnabled: usingOpenAI,
       openAIRequestStats: openAIStats,
@@ -759,6 +830,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       processed_products: partitioned.sampled.length,
       category_count: drafts.length,
       needs_review_count: needsReviewCount,
+      auto_accepted_count: autoAcceptedCount,
     });
 
     await logger.flush("run_completed");
@@ -776,9 +848,30 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         sample_part_index: samplePartIndex,
         category_count: drafts.length,
         needs_review_count: needsReviewCount,
+        needs_review_rate: needsReviewRate,
+        auto_accepted_count: autoAcceptedCount,
+        auto_accepted_rate: autoAcceptedRate,
+        fallback_category_count: fallbackCategoryCount,
+        fallback_category_rate: fallbackCategoryRate,
+        category_contradiction_count: categoryContradictionCount,
+        attribute_validation_fail_count: attributeValidationFailCount,
+        category_confidence_histogram: categoryAssignments.confidenceHistogram,
+        top_confusion_alerts: categoryAssignments.topConfusionAlerts,
         qa_sampled_rows: qaResult.sampledRows,
         qa_total_rows: qaResult.totalRows,
         qa_report_path: qaResult.filePath,
+        quality_qa_sample_size: config.QUALITY_QA_SAMPLE_SIZE,
+        quality_gate: {
+          auto_accepted_rate_target: 0.7,
+          fallback_category_rate_target: 0.05,
+          attribute_validation_fail_rate_target: 0.08,
+          needs_review_rate_target: 0.3,
+          manual_qa_pass_rate_target: 0.9,
+          critical_mismatch_rate_target: 0.02,
+          pre_qa_passed: preQaQualityGatePass,
+          manual_qa_pending: true,
+          status: preQaQualityGatePass ? "pending_manual_qa" : "failed_pre_qa",
+        },
         artifact_retention_hours: config.ARTIFACT_RETENTION_HOURS,
         artifacts: artifactBuild.artifactSummaries,
         artifact_cleanup_deleted_count: cleanedArtifacts,

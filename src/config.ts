@@ -20,6 +20,11 @@ const envSchema = z.object({
   OPENAI_MAX_RETRIES: z.coerce.number().int().nonnegative().default(3),
   OPENAI_RETRY_BASE_MS: z.coerce.number().int().positive().default(750),
   OPENAI_RETRY_MAX_MS: z.coerce.number().int().positive().default(6_000),
+  CATEGORY_AUTO_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.76),
+  CATEGORY_AUTO_MIN_MARGIN: z.coerce.number().min(0).max(1).default(0.1),
+  ATTRIBUTE_AUTO_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.7),
+  HIGH_RISK_CATEGORY_EXTRA_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.08),
+  QUALITY_QA_SAMPLE_SIZE: z.coerce.number().int().positive().default(250),
   QA_SAMPLE_SIZE: z.coerce.number().int().positive().default(200),
   ARTIFACT_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
   TRACE_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
@@ -54,6 +59,12 @@ export function getConfig(): AppConfig {
   if (parsed.data.OPENAI_RETRY_BASE_MS > parsed.data.OPENAI_RETRY_MAX_MS) {
     throw new Error(
       `Invalid environment configuration: OPENAI_RETRY_BASE_MS (${parsed.data.OPENAI_RETRY_BASE_MS}) must be <= OPENAI_RETRY_MAX_MS (${parsed.data.OPENAI_RETRY_MAX_MS})`,
+    );
+  }
+
+  if (parsed.data.CATEGORY_AUTO_MIN_MARGIN >= parsed.data.CATEGORY_AUTO_MIN_CONFIDENCE) {
+    throw new Error(
+      `Invalid environment configuration: CATEGORY_AUTO_MIN_MARGIN (${parsed.data.CATEGORY_AUTO_MIN_MARGIN}) should be lower than CATEGORY_AUTO_MIN_CONFIDENCE (${parsed.data.CATEGORY_AUTO_MIN_CONFIDENCE})`,
     );
   }
 

@@ -1,8 +1,8 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { evaluateQAReport } from "../src/pipeline/qa-report.js";
+import { evaluateQAReport, writeQAReport } from "../src/pipeline/qa-report.js";
 
 describe("qa report", () => {
   it("computes pass rate from reviewed rows", async () => {
@@ -25,5 +25,35 @@ describe("qa report", () => {
     expect(result.reviewedRows).toBe(2);
     expect(result.passRows).toBe(1);
     expect(result.passRate).toBe(0.5);
+  });
+
+  it("writes QA CSV with automation review columns", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "qa-report-write-"));
+    const output = await writeQAReport({
+      outputDir: dir,
+      runId: "run-2",
+      sampleSize: 10,
+      rows: [
+        {
+          sourceSku: "sku-1",
+          title: "Caderno A4",
+          predictedCategory: "caderno-a4-pautado",
+          predictedCategoryConfidence: 0.83,
+          predictedCategoryMargin: 0.22,
+          autoDecision: "auto",
+          topConfidenceReasons: ["strong_lexical_match", "strong_semantic_match"],
+          needsReview: false,
+          attributeValues: { format: "A4" },
+        },
+      ],
+    });
+
+    const content = await readFile(output.filePath, "utf8");
+    expect(content).toContain("predicted_category_confidence");
+    expect(content).toContain("predicted_category_margin");
+    expect(content).toContain("auto_decision");
+    expect(content).toContain("top_confidence_reasons");
+    expect(content).toContain("corrected_category");
+    expect(content).toContain("corrected_attributes_json");
   });
 });

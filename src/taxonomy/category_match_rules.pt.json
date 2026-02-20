@@ -1,0 +1,213 @@
+{
+  "schema_version": "1.0",
+  "categories": [
+    {
+      "slug": "caderno-a4-pautado",
+      "include_any": ["caderno", "espiral", "brochura", "notebook", "a4", "pautado"],
+      "include_all": ["caderno", "a4"],
+      "exclude_any": ["quadriculado", "milimetrado"],
+      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "resma"],
+      "high_risk": true
+    },
+    {
+      "slug": "caderno-a4-quadriculado",
+      "include_any": ["caderno", "espiral", "brochura", "a4", "quadriculado", "milimetrado"],
+      "include_all": ["caderno", "a4"],
+      "exclude_any": ["pautado"],
+      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "resma"],
+      "high_risk": true
+    },
+    {
+      "slug": "caderno-a5-pautado",
+      "include_any": ["caderno", "espiral", "brochura", "a5", "pautado"],
+      "include_all": ["caderno", "a5"],
+      "exclude_any": ["quadriculado", "milimetrado"],
+      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "resma"],
+      "high_risk": true
+    },
+    {
+      "slug": "caderno-a5-quadriculado",
+      "include_any": ["caderno", "espiral", "brochura", "a5", "quadriculado", "milimetrado"],
+      "include_all": ["caderno", "a5"],
+      "exclude_any": ["pautado"],
+      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "resma"],
+      "high_risk": true
+    },
+    {
+      "slug": "caderno-a5-liso",
+      "include_any": ["caderno", "a5", "liso", "sem pauta", "blank"],
+      "include_all": ["caderno", "a5"],
+      "exclude_any": ["pautado", "quadriculado"],
+      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "resma"],
+      "high_risk": true
+    },
+    {
+      "slug": "caneta-esferografica",
+      "include_any": ["caneta", "esferografica", "esferográfica", "ballpoint"],
+      "include_all": [],
+      "exclude_any": ["gel"],
+      "strong_exclude_any": ["lapis", "lápis", "marcador", "afia", "agrafador"],
+      "high_risk": true
+    },
+    {
+      "slug": "caneta-gel",
+      "include_any": ["caneta", "gel"],
+      "include_all": ["gel"],
+      "exclude_any": [],
+      "strong_exclude_any": ["lapis", "lápis", "marcador", "afia", "agrafador"],
+      "high_risk": false
+    },
+    {
+      "slug": "marcador-texto",
+      "include_any": ["marcador", "marca texto", "highlighter"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": ["lapis", "lápis", "caneta", "afia", "agrafador", "agrafos"],
+      "high_risk": true
+    },
+    {
+      "slug": "lapis-hb",
+      "include_any": ["lapis", "lápis", "grafite", "hb", "2b", "lapiseira"],
+      "include_all": [],
+      "exclude_any": ["de cor"],
+      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "cola"],
+      "high_risk": false
+    },
+    {
+      "slug": "lapis-cor",
+      "include_any": ["lapis de cor", "lápis de cor", "colored pencils", "cores"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "bloco", "resma", "cola", "post-it", "notas aderentes"],
+      "high_risk": true
+    },
+    {
+      "slug": "afia",
+      "include_any": ["afia", "afiador", "apontador"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": false
+    },
+    {
+      "slug": "borracha",
+      "include_any": ["borracha", "eraser"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": false
+    },
+    {
+      "slug": "cola-bastao",
+      "include_any": ["cola", "bastao", "stick"],
+      "include_all": ["cola"],
+      "exclude_any": ["liquida", "líquida"],
+      "strong_exclude_any": [],
+      "high_risk": false
+    },
+    {
+      "slug": "cola-liquida",
+      "include_any": ["cola", "liquida", "líquida", "branca"],
+      "include_all": ["cola"],
+      "exclude_any": ["bastao", "stick"],
+      "strong_exclude_any": [],
+      "high_risk": false
+    },
+    {
+      "slug": "regua",
+      "include_any": ["regua", "régua", "esquadro", "transferidor"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": false
+    },
+    {
+      "slug": "tesoura",
+      "include_any": ["tesoura", "scissor"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": false
+    },
+    {
+      "slug": "estojo",
+      "include_any": ["estojo", "penal", "porta lapis", "porta lápis"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": true
+    },
+    {
+      "slug": "mochila",
+      "include_any": ["mochila", "backpack"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": true
+    },
+    {
+      "slug": "bloco-notas-aderentes",
+      "include_any": ["notas aderentes", "post-it", "bloco de notas", "aderente"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": false
+    },
+    {
+      "slug": "bloco-desenho",
+      "include_any": ["bloco de desenho", "papel vegetal", "trabalhos manuais", "croquis"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": true
+    },
+    {
+      "slug": "etiquetas-adesivas",
+      "include_any": ["etiquetas", "etiquetas adesivas"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": false
+    },
+    {
+      "slug": "agrafador",
+      "include_any": ["agrafador", "stapler"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": false
+    },
+    {
+      "slug": "agrafos-24-6",
+      "include_any": ["agrafos", "agrafos 24/6", "24/6"],
+      "include_all": ["agrafos"],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": false
+    },
+    {
+      "slug": "pasta-arquivo",
+      "include_any": ["pasta", "arquivo", "bolsa catalogo", "bolsa catálogo"],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": true
+    },
+    {
+      "slug": "papel-a4",
+      "include_any": ["resma", "papel de impressao", "papel de impressão", "a4", "folhas"],
+      "include_all": ["a4"],
+      "exclude_any": [],
+      "strong_exclude_any": ["caderno"],
+      "high_risk": true
+    },
+    {
+      "slug": "material-escolar-diverso",
+      "include_any": [],
+      "include_all": [],
+      "exclude_any": [],
+      "strong_exclude_any": [],
+      "high_risk": true
+    }
+  ]
+}

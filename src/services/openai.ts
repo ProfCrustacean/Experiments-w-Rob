@@ -3,6 +3,8 @@ import { z } from "zod";
 import type {
   AttributeExtractionLLMOutput,
   BatchAttributeExtractionInput,
+  CategoryDisambiguationInput,
+  CategoryDisambiguationOutput,
   CategoryAttribute,
   CategoryProfileLLMOutput,
   EmbeddingProvider,
@@ -43,6 +45,12 @@ const batchExtractionSchema = z.object({
   ),
 });
 
+const disambiguationSchema = z.object({
+  category_slug: z.string().min(1).nullable(),
+  confidence: z.number().min(0).max(1),
+  reason: z.string().min(1),
+});
+
 interface OpenAIProviderOptions {
   apiKey: string;
   llmModel: string;
@@ -59,6 +67,7 @@ interface OpenAIProviderStats {
   embedding_call_count: number;
   category_profile_call_count: number;
   attribute_batch_call_count: number;
+  category_disambiguation_call_count: number;
   retry_count: number;
   timeout_count: number;
   request_failure_count: number;
@@ -163,6 +172,7 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
     embedding_call_count: 0,
     category_profile_call_count: 0,
     attribute_batch_call_count: 0,
+    category_disambiguation_call_count: 0,
     retry_count: 0,
     timeout_count: 0,
     request_failure_count: 0,
@@ -211,7 +221,7 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
   }
 
   private async withRetry<T>(input: {
-    callKind: "embedding" | "category_profile" | "attribute_batch";
+    callKind: "embedding" | "category_profile" | "attribute_batch" | "category_disambiguation";
     requestBody: Record<string, unknown>;
     operation: () => Promise<T>;
     responsePayloadFactory: (response: T) => Record<string, unknown>;
@@ -538,5 +548,64 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
     }
 
     return output;
+  }
+
+  async disambiguateCategory(
+    input: CategoryDisambiguationInput,
+  ): Promise<CategoryDisambiguationOutput> {
+    if (input.candidates.length === 0) {
+      return {
+        categorySlug: null,
+        confidence: 0,
+        reason: "no_candidates",
+      };
+    }
+
+    const prompt = [
+      "Escolha a melhor categoria para o produto.",
+      "Responda APENAS com JSON valido.",
+      "Se estiver incerto, escolha null com baixa confianca.",
+      `product: ${JSON.stringify(input.product)}`,
+      `candidates: ${JSON.stringify(input.candidates)}`,
+    ].join("\n");
+
+    this.stats.category_disambiguation_call_count += 1;
+    const requestBody = {
+      model: this.llmModel,
+      response_format: { type: "json_object" as const },
+      messages: [
+        {
+          role: "system" as const,
+          content:
+            "Retorne JSON no formato {category_slug:string|null, confidence:number, reason:string}. category_slug deve ser um dos candidatos ou null.",
+        },
+        {
+          role: "user" as const,
+          content: prompt,
+        },
+      ],
+      temperature: 0,
+    };
+
+    const completion = await this.withRetry({
+      callKind: "category_disambiguation",
+      requestBody,
+      operation: () => this.client.chat.completions.create(requestBody),
+      responsePayloadFactory: (chatResponse) => ({
+        response_body: chatResponse,
+      }),
+    });
+
+    const content = completion.choices[0]?.message?.content ?? "{}";
+    const parsed = disambiguationSchema.parse(JSON.parse(content));
+    const allowedSlugs = new Set(input.candidates.map((candidate) => candidate.slug));
+    const chosenSlug =
+      parsed.category_slug && allowedSlugs.has(parsed.category_slug) ? parsed.category_slug : null;
+
+    return {
+      categorySlug: chosenSlug,
+      confidence: clampConfidence(parsed.confidence),
+      reason: parsed.reason,
+    };
   }
 }

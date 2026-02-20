@@ -36,6 +36,13 @@ describe("run artifacts", () => {
           sourceSku: "sku-1",
           categorySlug: "caderno-a4",
           categoryConfidence: 0.92,
+          categoryTop2Confidence: 0.75,
+          categoryMargin: 0.17,
+          autoDecision: "auto",
+          confidenceReasons: ["strong_lexical_match", "strong_semantic_match"],
+          isFallbackCategory: false,
+          categoryContradictionCount: 0,
+          attributeValidationFailCount: 0,
           attributeValues: { format: "A4", ruling: "pautado" },
           attributeConfidence: { format: 0.9, ruling: 0.88 },
           needsReview: false,
@@ -76,6 +83,14 @@ describe("run artifacts", () => {
         "run_id,source_sku,title,predicted_category,needs_review,key_attributes,review_status,review_notes\n",
       categoryCount: 1,
       needsReviewCount: 0,
+      autoAcceptedCount: 1,
+      autoAcceptedRate: 1,
+      fallbackCategoryCount: 0,
+      fallbackCategoryRate: 0,
+      categoryContradictionCount: 0,
+      attributeValidationFailCount: 0,
+      categoryConfidenceHistogram: { "0.8-1.0": 1 },
+      topConfusionAlerts: [],
       stageTimingsMs: { enrichment_ms: 100, embedding_ms: 200 },
       openAIEnabled: true,
       openAIRequestStats: { retry_count: 2 },
@@ -94,7 +109,7 @@ describe("run artifacts", () => {
     const csvArtifact = result.artifacts.find((artifact) => artifact.key === "full_report_csv");
     expect(csvArtifact).toBeTruthy();
     expect(csvArtifact?.content.toString("utf8")).toContain(
-      "source_sku,title,brand,price,availability,predicted_category,category_confidence,needs_review",
+      "source_sku,title,brand,price,availability,predicted_category,category_confidence,category_margin,auto_decision,confidence_reasons,needs_review",
     );
 
     const xlsxArtifact = result.artifacts.find((artifact) => artifact.key === "full_report_xlsx");
