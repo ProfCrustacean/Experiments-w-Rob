@@ -484,9 +484,9 @@ export async function assignCategoriesForProducts(
           ranked = [...ranked, fallbackCandidate].sort((left, right) => right.score - left.score);
         }
 
-        const llmCandidates = ranked.slice(0, 3);
-        const top1BeforeLlm = llmCandidates[0];
-        const top2BeforeLlm = llmCandidates[1] ?? null;
+        const llmCandidates = ranked.filter((candidate) => !candidate.category.is_fallback).slice(0, 3);
+        const top1BeforeLlm = llmCandidates[0] ?? ranked[0];
+        const top2BeforeLlm = llmCandidates[1] ?? ranked[1] ?? null;
         const top1PreRule = taxonomy.rulesBySlug.get(top1BeforeLlm.category.slug);
         const preThresholds = resolveCategoryThresholds({
           rule: top1PreRule,
@@ -497,6 +497,7 @@ export async function assignCategoriesForProducts(
 
         const useLlm =
           input.llmProvider !== null &&
+          llmCandidates.length >= 2 &&
           shouldUseLlmDisambiguation({
             top1: top1BeforeLlm,
             top2: top2BeforeLlm,

@@ -92,4 +92,32 @@ describe("category assignment", () => {
     expect(assignment).toBeTruthy();
     expect(assignment?.autoDecision).toBe("review");
   });
+
+  it("keeps file organizer products away from afia and classifies as pasta-arquivo", async () => {
+    const products = normalizeRows([
+      {
+        sourceSku: "sku-classificador",
+        title: "Classificador com Mola Clip A4",
+        description: "Pasta e classificador para arquivo escolar",
+        brand: "Note!",
+      },
+    ]);
+
+    const provider = new FallbackProvider(256);
+    const output = await assignCategoriesForProducts({
+      products,
+      embeddingProvider: provider,
+      llmProvider: provider,
+      autoMinConfidence: 0.76,
+      autoMinMargin: 0.1,
+      highRiskExtraConfidence: 0.08,
+      llmConcurrency: 1,
+      embeddingBatchSize: 8,
+      embeddingConcurrency: 2,
+    });
+
+    const assignment = output.assignmentsBySku.get("sku-classificador");
+    expect(assignment?.categorySlug).toBe("pasta-arquivo");
+    expect(assignment?.categorySlug).not.toBe("afia");
+  });
 });

@@ -116,9 +116,16 @@ export function detectPackCount(text: string): number | null {
     return Number(packMatch[1]);
   }
 
-  const xMatch = normalized.match(/\b(\d{1,3})\s*(?:un|unid|unidades|pcs|pecas)\b/);
-  if (xMatch) {
-    return Number(xMatch[1]);
+  const bundledUnitsMatch = normalized.match(
+    /\b(\d{1,3})\s*x\s*\d{1,4}\s*(?:un|unid|unidades|uds|pcs|pecas)\b/,
+  );
+  if (bundledUnitsMatch) {
+    return Number(bundledUnitsMatch[1]);
+  }
+
+  const unitMatch = normalized.match(/\b(\d{1,3})\s*(?:unid(?:ades)?|un|uds|pcs|pecas)\b/);
+  if (unitMatch) {
+    return Number(unitMatch[1]);
   }
 
   return null;
@@ -126,9 +133,16 @@ export function detectPackCount(text: string): number | null {
 
 export function detectNumericQuantity(text: string): number | null {
   const normalized = normalizeText(text);
-  const quantityMatch = normalized.match(/\b(\d{1,3})\s*(?:x|un|unid|unidades|pcs|pecas)\b/);
-  if (quantityMatch) {
-    return Number(quantityMatch[1]);
+  const bundleMatch = normalized.match(
+    /\b(\d{1,3})\s*x\s*\d{1,4}\s*(?:un|unid|unidades|uds|pcs|pecas)\b/,
+  );
+  if (bundleMatch) {
+    return Number(bundleMatch[1]);
+  }
+
+  const unitsMatch = normalized.match(/\b(\d{1,3})\s*(?:unid(?:ades)?|un|uds|pcs|pecas)\b/);
+  if (unitsMatch) {
+    return Number(unitsMatch[1]);
   }
 
   return null;

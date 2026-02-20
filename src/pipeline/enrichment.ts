@@ -11,13 +11,19 @@ import {
   detectFormat,
   detectPackCount,
   detectRuling,
-  detectNumericQuantity,
   normalizeText,
 } from "../utils/text.js";
 import { loadTaxonomy } from "../taxonomy/load.js";
 
 const PACK_CONTEXT_REGEX = /(pack|caixa|conjunto|kit|unid|unidades|pcs|pecas|x\s*\d+)/;
 const SHEET_CONTEXT_REGEX = /(folhas|fls|resma|caderno|bloco|recarga)/;
+const BLOCKING_CATEGORY_REASONS = new Set([
+  "below_auto_confidence",
+  "low_margin",
+  "generic_or_fallback_category",
+  "mixed_ink_signals",
+  "category_contradiction",
+]);
 
 const taxonomy = loadTaxonomy();
 
@@ -42,9 +48,113 @@ function detectBoolean(text: string, positive: RegExp, negative: RegExp): boolea
   return null;
 }
 
+function detectPackCountStrict(text: string): number | null {
+  const normalized = normalizeText(text);
+
+  const packMatch = normalized.match(/(?:pack|caixa|conjunto|kit)\s*(?:de\s*)?(\d{1,3})\b/);
+  if (packMatch) {
+    return Number(packMatch[1]);
+  }
+
+  const bundledUnitsMatch = normalized.match(
+    /\b(\d{1,3})\s*x\s*\d{1,4}\s*(?:un|unid|unidades|uds|pcs|pecas)\b/,
+  );
+  if (bundledUnitsMatch) {
+    return Number(bundledUnitsMatch[1]);
+  }
+
+  const unitsMatch = normalized.match(/\b(\d{1,3})\s*(?:unid(?:ades)?|un|uds|pcs|pecas)\b/);
+  if (unitsMatch) {
+    return Number(unitsMatch[1]);
+  }
+
+  return null;
+}
+
+function detectCompartmentCount(text: string): number | null {
+  const normalized = normalizeText(text);
+  const numericMatch = normalized.match(/\b(\d{1,2})\s*(?:compartimentos?|fechos?|ziperes?|zipper)\b/);
+  if (numericMatch) {
+    return Number(numericMatch[1]);
+  }
+  if (/\btriplo\b/.test(normalized)) {
+    return 3;
+  }
+  if (/\bduplo\b/.test(normalized)) {
+    return 2;
+  }
+  if (/\bsimples\b/.test(normalized)) {
+    return 1;
+  }
+  return null;
+}
+
+function detectMaterialText(text: string): string | null {
+  const normalized = normalizeText(text);
+  if (/(silicone)/.test(normalized)) {
+    return "silicone";
+  }
+  if (/(poliester|polyester|tecido|canvas|nylon|pano|neoprene)/.test(normalized)) {
+    return "tecido";
+  }
+  if (/(plastico|plastica|plástico|plástica|eva|vinil|metal|metalico|metálico)/.test(normalized)) {
+    return "plastico";
+  }
+  return null;
+}
+
+function detectTipType(text: string): string | null {
+  const normalized = normalizeText(text);
+  if (/(chanfrad|chisel|marca texto|highlighter)/.test(normalized)) {
+    return "chanfrada";
+  }
+  if (/(fina|fine|fineliner|0[.,][2-6]|0[.,]7)/.test(normalized)) {
+    return "fina";
+  }
+  if (/(media|medium|brush|pincel|1[.,]0|1[.,]2)/.test(normalized)) {
+    return "media";
+  }
+  return null;
+}
+
+function detectTargetAge(text: string): string | null {
+  const normalized = normalizeText(text);
+  if (/(infantil|crianca|criança|kids|junior|miudo|miúdo)/.test(normalized)) {
+    return "infantil";
+  }
+  if (/(juvenil|teen|adolescente)/.test(normalized)) {
+    return "juvenil";
+  }
+  return null;
+}
+
+function isBlockingReason(reason: string): boolean {
+  if (!reason) {
+    return false;
+  }
+
+  if (BLOCKING_CATEGORY_REASONS.has(reason)) {
+    return true;
+  }
+
+  return (
+    reason === "empty_attribute_output" ||
+    reason === "low_category_confidence" ||
+    reason === "category_review_gate" ||
+    reason.startsWith("missing_required_") ||
+    reason.startsWith("low_attribute_confidence_") ||
+    reason.startsWith("invalid_") ||
+    reason.startsWith("policy_") ||
+    reason.startsWith("contradiction_") ||
+    reason.startsWith("pack_count_") ||
+    reason.startsWith("llm_")
+  );
+}
+
 function inferAttributeWithRules(
   attribute: CategoryAttribute,
   product: NormalizedCatalogProduct,
+  categorySlug: string,
 ): { value: string | number | boolean | null; confidence: number } {
   const text = `${product.normalizedTitle} ${product.normalizedDescription}`;
 
@@ -58,7 +168,7 @@ function inferAttributeWithRules(
       return { value: ruling, confidence: ruling ? 0.9 : 0.1 };
     }
     case "pack_count": {
-      const packCount = detectPackCount(text) ?? detectNumericQuantity(text);
+      const packCount = detectPackCountStrict(text) ?? detectPackCount(text);
       return { value: packCount, confidence: packCount ? 0.88 : 0.1 };
     }
     case "sheet_count": {
@@ -73,26 +183,55 @@ function inferAttributeWithRules(
       const hardness = text.match(/\b(HB|2B|B|H)\b/i)?.[1]?.toUpperCase() ?? null;
       return { value: hardness, confidence: hardness ? 0.9 : 0.1 };
     }
+    case "compartment_count": {
+      const compartments = detectCompartmentCount(text);
+      return { value: compartments, confidence: compartments ? 0.88 : 0.1 };
+    }
+    case "tip_type": {
+      const tipType = detectTipType(text);
+      return { value: tipType, confidence: tipType ? 0.86 : 0.1 };
+    }
+    case "material": {
+      const material = detectMaterialText(text);
+      return { value: material, confidence: material ? 0.84 : 0.1 };
+    }
     case "glue_type": {
-      if (/(bastao|stick)/.test(text)) {
+      if (/(bastao|bastão|stick|stic)/.test(text)) {
         return { value: "bastao", confidence: 0.9 };
       }
-      if (/(liquida|liquido|liquid)/.test(text)) {
+      if (/(liquida|liquido|liquid|branca|cola universal|cola escolar|super cola)/.test(text)) {
         return { value: "liquida", confidence: 0.9 };
+      }
+      if (categorySlug === "cola-liquida" && /\bcola\b/.test(text)) {
+        return { value: "liquida", confidence: 0.72 };
       }
       return { value: null, confidence: 0.1 };
     }
     case "volume_ml": {
       const volume = parseNumber(text, /(\d{1,4})\s*ml/);
-      return { value: volume, confidence: volume ? 0.84 : 0.1 };
+      if (volume) {
+        return { value: volume, confidence: 0.84 };
+      }
+      if (categorySlug === "cola-liquida" || categorySlug === "cola-bastao") {
+        const grams = parseNumber(text, /(\d{1,4}(?:[.,]\d+)?)\s*g\b/);
+        return { value: grams, confidence: grams ? 0.68 : 0.1 };
+      }
+      return { value: null, confidence: 0.1 };
     }
     case "has_wheels": {
-      const value = detectBoolean(text, /(com rodas|rodas)/, /(sem rodas)/);
+      const value = detectBoolean(text, /(com rodas|rodas|trolley)/, /(sem rodas)/);
+      if (value === null && categorySlug === "mochila" && /\bmochila\b/.test(text)) {
+        return { value: false, confidence: 0.62 };
+      }
       return { value, confidence: value !== null ? 0.86 : 0.1 };
     }
     case "capacity_l": {
       const capacity = parseNumber(text, /(\d{1,3}(?:[.,]\d+)?)\s*(?:l|litros?)/);
       return { value: capacity, confidence: capacity ? 0.84 : 0.1 };
+    }
+    case "target_age": {
+      const targetAge = detectTargetAge(text);
+      return { value: targetAge, confidence: targetAge ? 0.8 : 0.1 };
     }
     case "tip_safety": {
       const tipSafety = detectBoolean(text, /(ponta redonda|seguranca)/, /(ponta afiada)/);
@@ -349,7 +488,7 @@ export function enrichProductWithSignals(
   const ruleConfidence: Record<string, number> = {};
 
   for (const attribute of category.attributes.attributes) {
-    const inferred = inferAttributeWithRules(attribute, product);
+    const inferred = inferAttributeWithRules(attribute, product, category.slug);
     ruleValues[attribute.key] = coerceValue(attribute, inferred.value);
     ruleConfidence[attribute.key] = sanitizeConfidence(inferred.confidence);
   }
@@ -440,7 +579,7 @@ export function enrichProductWithSignals(
     reasons.push("empty_attribute_output");
   }
 
-  if (category.confidenceScore < confidenceThreshold) {
+  if (category.confidenceScore < confidenceThreshold && category.autoDecision !== "auto") {
     reasons.push("low_category_confidence");
   }
 
@@ -449,14 +588,18 @@ export function enrichProductWithSignals(
   }
 
   if (category.confidenceReasons && category.confidenceReasons.length > 0) {
-    reasons.push(...category.confidenceReasons);
+    for (const reason of category.confidenceReasons) {
+      if (isBlockingReason(reason)) {
+        reasons.push(reason);
+      }
+    }
   }
 
   if (options?.fallbackReason) {
     reasons.push(options.fallbackReason);
   }
 
-  const uniqueReasons = [...new Set(reasons)];
+  const uniqueReasons = [...new Set(reasons)].filter((reason) => isBlockingReason(reason));
   const attributeValidationFailCount = uniqueReasons.filter(
     (reason) =>
       reason.startsWith("invalid_") ||
@@ -465,10 +608,7 @@ export function enrichProductWithSignals(
       reason.startsWith("pack_count_"),
   ).length;
 
-  const needsReview =
-    category.autoDecision === "review" ||
-    uniqueReasons.length > 0 ||
-    attributeValidationFailCount > 0;
+  const needsReview = category.autoDecision === "review" || uniqueReasons.length > 0;
 
   return {
     sourceSku: product.sourceSku,
