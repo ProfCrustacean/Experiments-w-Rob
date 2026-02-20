@@ -29,6 +29,8 @@ describe("category assignment", () => {
       autoMinMargin: 0.1,
       highRiskExtraConfidence: 0.08,
       llmConcurrency: 2,
+      embeddingBatchSize: 8,
+      embeddingConcurrency: 2,
     });
 
     expect(output.assignmentsBySku.get("sku-afia")?.categorySlug).toBe("afia");
@@ -54,6 +56,8 @@ describe("category assignment", () => {
       autoMinMargin: 0.1,
       highRiskExtraConfidence: 0.08,
       llmConcurrency: 1,
+      embeddingBatchSize: 8,
+      embeddingConcurrency: 2,
     });
 
     const assignment = output.assignmentsBySku.get("sku-unknown");
@@ -80,6 +84,8 @@ describe("category assignment", () => {
       autoMinMargin: 0.1,
       highRiskExtraConfidence: 0.08,
       llmConcurrency: 1,
+      embeddingBatchSize: 8,
+      embeddingConcurrency: 2,
     });
 
     const assignment = output.assignmentsBySku.get("sku-amb");

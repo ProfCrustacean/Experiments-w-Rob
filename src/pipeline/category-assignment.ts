@@ -7,6 +7,7 @@ import type {
   TaxonomyCategory,
 } from "../types.js";
 import { normalizeText, detectFormat, detectRuling, detectPackCount } from "../utils/text.js";
+import { chunk } from "../utils/collections.js";
 import { loadTaxonomy } from "../taxonomy/load.js";
 
 export interface CategoryAssignment {
@@ -56,6 +57,8 @@ interface AssignCategoriesInput {
   autoMinMargin: number;
   highRiskExtraConfidence: number;
   llmConcurrency: number;
+  embeddingBatchSize: number;
+  embeddingConcurrency: number;
 }
 
 const PACK_CONTEXT_REGEX = /(pack|caixa|conjunto|kit|unid|unidades|pcs|pecas|x\s*\d+)/;
@@ -277,6 +280,35 @@ function buildCategoryPrototypeText(category: TaxonomyCategory): string {
     .trim();
 }
 
+async function embedTextsWithBatches(input: {
+  texts: string[];
+  provider: EmbeddingProvider;
+  batchSize: number;
+  concurrency: number;
+}): Promise<number[][]> {
+  if (input.texts.length === 0) {
+    return [];
+  }
+
+  const groups = chunk(input.texts, Math.max(1, input.batchSize));
+  const limiter = pLimit(Math.max(1, Math.floor(input.concurrency)));
+  const output = new Array<number[]>(input.texts.length);
+
+  await Promise.all(
+    groups.map((group, groupIndex) =>
+      limiter(async () => {
+        const start = groupIndex * Math.max(1, input.batchSize);
+        const vectors = await input.provider.embedMany(group);
+        for (let index = 0; index < vectors.length; index += 1) {
+          output[start + index] = vectors[index];
+        }
+      }),
+    ),
+  );
+
+  return output;
+}
+
 function toDisambiguationCandidates(candidates: CandidateScore[]): Array<{
   slug: string;
   name_pt: string;
@@ -326,9 +358,14 @@ export async function assignCategoriesForProducts(
     categoryVectorBySlug.set(taxonomy.categories[index].slug, categoryVectors[index]);
   }
 
-  const productVectors = await input.embeddingProvider.embedMany(
-    input.products.map((product) => `${product.normalizedTitle} ${product.normalizedDescription} ${product.normalizedBrand}`),
-  );
+  const productVectors = await embedTextsWithBatches({
+    texts: input.products.map(
+      (product) => `${product.normalizedTitle} ${product.normalizedDescription} ${product.normalizedBrand}`,
+    ),
+    provider: input.embeddingProvider,
+    batchSize: input.embeddingBatchSize,
+    concurrency: input.embeddingConcurrency,
+  });
 
   const llmLimiter = pLimit(Math.max(1, Math.floor(input.llmConcurrency)));
   const assignmentEntries = await Promise.all(

@@ -372,6 +372,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       autoMinMargin: config.CATEGORY_AUTO_MIN_MARGIN,
       highRiskExtraConfidence: config.HIGH_RISK_CATEGORY_EXTRA_CONFIDENCE,
       llmConcurrency: config.CATEGORY_PROFILE_CONCURRENCY,
+      embeddingBatchSize: config.EMBEDDING_BATCH_SIZE,
+      embeddingConcurrency: config.EMBEDDING_CONCURRENCY,
     });
     const taxonomy = loadTaxonomy();
     const assignedCategoryBySku = new Map<string, string>();
