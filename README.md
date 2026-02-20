@@ -44,6 +44,12 @@ Run enrichment pipeline:
 npm run pipeline -- --input ./data/catalog.xlsx --store continente --run-label pilot-1
 ```
 
+Run enrichment pipeline from environment variables (useful for Render cron jobs):
+
+```bash
+CATALOG_INPUT_PATH=./data/catalog.xlsx STORE_ID=continente RUN_LABEL=render-pilot npm run pipeline:env
+```
+
 Output:
 
 - Terminal JSON summary (includes `runId`)

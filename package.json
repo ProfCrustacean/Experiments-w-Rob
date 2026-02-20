@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "db:migrate": "tsx src/cli/migrate.ts",
     "pipeline": "tsx src/cli/pipeline.ts",
+    "pipeline:env": "tsx src/cli/pipeline-from-env.ts",
     "qa:evaluate": "tsx src/cli/qa-evaluate.ts"
   },
   "repository": {
