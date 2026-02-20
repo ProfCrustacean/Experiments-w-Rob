@@ -1,0 +1,42 @@
+{
+  "name": "experiments-w-rob",
+  "version": "0.1.0",
+  "description": "Catalog enrichment pipeline for school supply matching",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate": "tsx src/cli/migrate.ts",
+    "pipeline": "tsx src/cli/pipeline.ts",
+    "qa:evaluate": "tsx src/cli/qa-evaluate.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ProfCrustacean/Experiments-w-Rob.git"
+  },
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ProfCrustacean/Experiments-w-Rob/issues"
+  },
+  "homepage": "https://github.com/ProfCrustacean/Experiments-w-Rob#readme",
+  "dependencies": {
+    "csv-parse": "^6.1.0",
+    "dotenv": "^17.3.1",
+    "openai": "^6.22.0",
+    "p-limit": "^7.3.0",
+    "pg": "^8.18.0",
+    "slugify": "^1.6.6",
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/pg": "^8.15.6",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}
