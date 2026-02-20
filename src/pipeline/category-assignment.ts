@@ -256,17 +256,51 @@ function buildConfidenceHistogram(assignments: Iterable<CategoryAssignment>): Re
 function shouldUseLlmDisambiguation(input: {
   top1: CandidateScore;
   top2: CandidateScore | null;
-  autoMinConfidence: number;
-  autoMinMargin: number;
+  requiredConfidence: number;
+  requiredMargin: number;
 }): boolean {
   if (!input.top2) {
     return false;
   }
 
   const margin = input.top1.score - input.top2.score;
-  const closeScores = margin < Math.max(input.autoMinMargin + 0.04, 0.14);
-  const lowConfidence = input.top1.score < input.autoMinConfidence + 0.08;
-  return closeScores || lowConfidence;
+  const closeScores = margin < Math.max(input.requiredMargin + 0.03, 0.1);
+  const weakLexical = input.top1.lexical < 0.55;
+  const nearConfidenceBoundary = input.top1.score < input.requiredConfidence + 0.03;
+  return closeScores || (weakLexical && nearConfidenceBoundary);
+}
+
+function resolveCategoryThresholds(input: {
+  rule:
+    | {
+        high_risk?: boolean;
+        auto_min_confidence?: number;
+        auto_min_margin?: number;
+      }
+    | undefined;
+  autoMinConfidence: number;
+  autoMinMargin: number;
+  highRiskExtraConfidence: number;
+}): {
+  requiredConfidence: number;
+  requiredMargin: number;
+} {
+  const hasConfidenceOverride = typeof input.rule?.auto_min_confidence === "number";
+  const hasMarginOverride = typeof input.rule?.auto_min_margin === "number";
+
+  const requiredConfidence = hasConfidenceOverride
+    ? clampScore(input.rule?.auto_min_confidence ?? input.autoMinConfidence)
+    : clampScore(
+        input.autoMinConfidence + (input.rule?.high_risk ? input.highRiskExtraConfidence : 0),
+      );
+  const requiredMargin = hasMarginOverride
+    ? clampScore(input.rule?.auto_min_margin ?? input.autoMinMargin)
+    : clampScore(input.autoMinMargin);
+
+  return {
+    requiredConfidence,
+    requiredMargin,
+  };
 }
 
 function buildCategoryPrototypeText(category: TaxonomyCategory): string {
@@ -391,7 +425,7 @@ export async function assignCategoriesForProducts(
           const includeAllSatisfied = includeAllTerms.length === 0 || includeAllMisses === 0;
           const lexicalEligible = includeAnySatisfied && includeAllSatisfied;
 
-          const lexicalBase = includeTerms.length === 0 ? 0 : includeHits / (includeTerms.length * 2);
+          const lexicalBase = includeTerms.length === 0 ? 0.35 : Math.min(1, includeHits / 2);
           let lexicalScore = clampScore(lexicalBase);
           if (includeAllTerms.length > 0 && includeAllMisses > 0) {
             lexicalScore *= 0.45;
@@ -408,7 +442,13 @@ export async function assignCategoriesForProducts(
             lexicalScore = 0.05;
           }
 
-          let score = 0.45 * lexicalScore + 0.35 * semanticScore + 0.2 * compatibilityScore;
+          let score = 0.5 * lexicalScore + 0.3 * semanticScore + 0.2 * compatibilityScore;
+          if (includeAllSatisfied && includeHits >= 2) {
+            score += 0.08;
+          }
+          if (includeAnySatisfied && includeAllSatisfied && excludeHits === 0 && contradictionCount === 0) {
+            score += 0.05;
+          }
           score -= Math.min(0.25, excludeHits * 0.12);
           score -= contradictionCount * 0.18;
           if (strongExcluded) {
@@ -447,14 +487,21 @@ export async function assignCategoriesForProducts(
         const llmCandidates = ranked.slice(0, 3);
         const top1BeforeLlm = llmCandidates[0];
         const top2BeforeLlm = llmCandidates[1] ?? null;
+        const top1PreRule = taxonomy.rulesBySlug.get(top1BeforeLlm.category.slug);
+        const preThresholds = resolveCategoryThresholds({
+          rule: top1PreRule,
+          autoMinConfidence: input.autoMinConfidence,
+          autoMinMargin: input.autoMinMargin,
+          highRiskExtraConfidence: input.highRiskExtraConfidence,
+        });
 
         const useLlm =
           input.llmProvider !== null &&
           shouldUseLlmDisambiguation({
             top1: top1BeforeLlm,
             top2: top2BeforeLlm,
-            autoMinConfidence: input.autoMinConfidence,
-            autoMinMargin: input.autoMinMargin,
+            requiredConfidence: preThresholds.requiredConfidence,
+            requiredMargin: preThresholds.requiredMargin,
           });
 
         let llmReason = "";
@@ -482,8 +529,14 @@ export async function assignCategoriesForProducts(
           (top1.category.slug.startsWith("caneta-") || top2?.category.slug.startsWith("caneta-") === true);
 
         const rule = taxonomy.rulesBySlug.get(top1.category.slug);
-        const requiredConfidence =
-          input.autoMinConfidence + (rule?.high_risk ? input.highRiskExtraConfidence : 0);
+        const thresholds = resolveCategoryThresholds({
+          rule,
+          autoMinConfidence: input.autoMinConfidence,
+          autoMinMargin: input.autoMinMargin,
+          highRiskExtraConfidence: input.highRiskExtraConfidence,
+        });
+        const requiredConfidence = thresholds.requiredConfidence;
+        const requiredMargin = thresholds.requiredMargin;
 
         const isGenericCategory =
           top1.category.is_fallback ||
@@ -506,7 +559,7 @@ export async function assignCategoriesForProducts(
         if (top1.score < requiredConfidence) {
           confidenceReasons.push("below_auto_confidence");
         }
-        if (margin < input.autoMinMargin) {
+        if (margin < requiredMargin) {
           confidenceReasons.push("low_margin");
         }
         if (isGenericCategory) {
@@ -521,7 +574,7 @@ export async function assignCategoriesForProducts(
 
         const autoDecision: "auto" | "review" =
           top1.score >= requiredConfidence &&
-          margin >= input.autoMinMargin &&
+          margin >= requiredMargin &&
           top1.contradictionCount === 0 &&
           !mixedInkSignals &&
           !isGenericCategory
@@ -570,7 +623,7 @@ export async function assignCategoriesForProducts(
     };
 
     existing.affected_count += 1;
-    existing.low_margin_count += assignment.categoryMargin < input.autoMinMargin ? 1 : 0;
+    existing.low_margin_count += assignment.confidenceReasons.includes("low_margin") ? 1 : 0;
     existing.contradiction_count += assignment.categoryContradictionCount;
     existing.fallback_count += assignment.isFallbackCategory ? 1 : 0;
 

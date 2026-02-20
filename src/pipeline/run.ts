@@ -75,7 +75,8 @@ interface AttributeBatchItem {
 
 interface AttributeBatchTask {
   categorySlug: string;
-  categoryContext: Pick<CategoryContext, "slug" | "attributes" | "description">;
+  categoryContext: Pick<CategoryContext, "slug" | "description">;
+  llmAttributeSchema: CategoryContext["attributes"];
   items: AttributeBatchItem[];
 }
 
@@ -447,32 +448,63 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         contradictionCount: assignment?.categoryContradictionCount ?? 0,
       };
 
+      const ruleOnlyEnrichment = enrichProductWithSignals(
+        product,
+        context,
+        null,
+        config.CONFIDENCE_THRESHOLD,
+        config.ATTRIBUTE_AUTO_MIN_CONFIDENCE,
+      );
+
       if (!usingOpenAI) {
-        const enrichment = enrichProductWithSignals(
-          product,
-          context,
-          null,
-          config.CONFIDENCE_THRESHOLD,
-          config.ATTRIBUTE_AUTO_MIN_CONFIDENCE,
-        );
-        enrichmentMap.set(product.sourceSku, enrichment);
+        enrichmentMap.set(product.sourceSku, ruleOnlyEnrichment);
         continue;
       }
 
-      const existingTask = batchedByCategory.get(category.slug);
+      if (context.isFallbackCategory) {
+        enrichmentMap.set(product.sourceSku, ruleOnlyEnrichment);
+        continue;
+      }
+
+      const missingKeys = context.attributes.attributes
+        .filter((attribute) => {
+          const value = ruleOnlyEnrichment.attributeValues[attribute.key];
+          const confidence = ruleOnlyEnrichment.attributeConfidence[attribute.key] ?? 0;
+          if (value === null || value === "") {
+            return true;
+          }
+          return attribute.required && confidence < config.ATTRIBUTE_AUTO_MIN_CONFIDENCE;
+        })
+        .map((attribute) => attribute.key);
+
+      if (missingKeys.length === 0) {
+        enrichmentMap.set(product.sourceSku, ruleOnlyEnrichment);
+        continue;
+      }
+
+      const sortedMissingKeys = [...new Set(missingKeys)].sort();
+      const taskKey = `${category.slug}::${sortedMissingKeys.join(",")}`;
+      const llmAttributeSchema: CategoryContext["attributes"] = {
+        ...context.attributes,
+        attributes: context.attributes.attributes.filter((attribute) =>
+          sortedMissingKeys.includes(attribute.key),
+        ),
+      };
+
+      const existingTask = batchedByCategory.get(taskKey);
       if (existingTask) {
         existingTask.items.push({
           product,
           context,
         });
       } else {
-        batchedByCategory.set(category.slug, {
+        batchedByCategory.set(taskKey, {
           categorySlug: category.slug,
           categoryContext: {
             slug: context.slug,
-            attributes: context.attributes,
             description: context.description,
           },
+          llmAttributeSchema,
           items: [
             {
               product,
@@ -490,6 +522,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
           batchTasks.push({
             categorySlug: task.categorySlug,
             categoryContext: task.categoryContext,
+            llmAttributeSchema: task.llmAttributeSchema,
             items: task.items.slice(index, index + config.ATTRIBUTE_BATCH_SIZE),
           });
         }
@@ -510,6 +543,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
             logger.debug("pipeline", "batch.attribute.started", "Attribute batch started.", {
               category_slug: task.categorySlug,
               sku_count: task.items.length,
+              attribute_keys: task.llmAttributeSchema.attributes.map((attribute) => attribute.key),
               source_skus: task.items.map((item) => item.product.sourceSku),
             });
 
@@ -517,9 +551,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
 
             try {
               outputBySku = await llmProvider.extractProductAttributesBatch({
-                categoryName: task.categoryContext.attributes.category_name_pt,
+                categoryName: task.llmAttributeSchema.category_name_pt,
                 categoryDescription: task.categoryContext.description,
-                attributeSchema: task.categoryContext.attributes,
+                attributeSchema: task.llmAttributeSchema,
                 products: task.items.map(({ product }) => ({
                   sourceSku: product.sourceSku,
                   product: {
