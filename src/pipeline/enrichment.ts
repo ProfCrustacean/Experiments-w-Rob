@@ -171,132 +171,147 @@ function detectColorSet(text: string): boolean | null {
   return null;
 }
 
-function detectItemSubtype(categorySlug: string, text: string): string | null {
+function detectItemSubtype(categorySlug: string, text: string, titleText: string): string | null {
   const normalized = normalizeText(text);
+  const normalizedTitle = normalizeText(titleText);
+  const inTitle = (pattern: RegExp): boolean => pattern.test(normalizedTitle);
+  const inText = (pattern: RegExp): boolean => pattern.test(normalized);
 
   if (categorySlug === "cadernos_blocos") {
-    if (/(flash\s*cards?|fichas?)/.test(normalized)) {
+    if (inTitle(/(flash\s*cards?|fichas?)/) || inText(/(flash\s*cards?|fichas?)/)) {
       return "flashcards";
     }
-    if (/(bloco.*desenho|desenho|croquis|sketch|cartolina|papel vegetal)/.test(normalized)) {
+    if (inTitle(/(bloco.*desenho|desenho|croquis|sketch|cartolina|papel vegetal)/) || inText(/(bloco.*desenho|desenho|croquis|sketch|cartolina|papel vegetal)/)) {
       return "bloco_desenho";
     }
-    if (/recarga/.test(normalized)) {
+    if (inTitle(/recarga/) || inText(/recarga/)) {
       return "recarga";
     }
-    if (/(bloco|apontamentos|bloco de notas)/.test(normalized)) {
+    if (inTitle(/(bloco|apontamentos|bloco de notas)/) || inText(/(bloco|apontamentos|bloco de notas)/)) {
       return "bloco_apontamentos";
     }
-    if (/(caderno|espiral|brochura|caderno inteligente)/.test(normalized)) {
+    if (inTitle(/(caderno|espiral|brochura|caderno inteligente)/) || inText(/(caderno|espiral|brochura|caderno inteligente)/)) {
       return "caderno";
     }
     return null;
   }
 
   if (categorySlug === "escrita") {
-    if (/(lapis de cor|lápis de cor|colored pencils)/.test(normalized)) {
-      return "lapis_cor";
-    }
-    if (/(lapis|lápis|lapiseira|grafite)/.test(normalized)) {
-      return "lapis_grafite";
-    }
-    if (/(caneta|esferografica|esferográfica|gel pen|roller)/.test(normalized)) {
-      return "caneta";
-    }
-    if (/(marca texto|marcador|highlighter|fineliner)/.test(normalized)) {
-      return "marcador";
-    }
-    if (/(borracha|eraser)/.test(normalized)) {
-      return "borracha";
-    }
-    if (/(afiador|apontador|afia)/.test(normalized)) {
+    if (inTitle(/(afiador|apontador|afia)/) || (!inTitle(/(lapis|lápis|lapiseira)/) && inText(/(afiador|apontador|afia)/))) {
       return "afiador";
     }
-    if (/(corretor|corretivo)/.test(normalized)) {
+    if (inTitle(/(borracha|eraser)/) || (!inTitle(/(lapis|lápis|lapiseira)/) && inText(/(borracha|eraser)/))) {
+      return "borracha";
+    }
+    if (inTitle(/(corretor|corretivo|corrector|correctora)/) || inText(/(corretor|corretivo|corrector|correctora)/)) {
       return "corretor";
+    }
+    if (inTitle(/(lapis de cor|lápis de cor|colored pencils)/) || inText(/(lapis de cor|lápis de cor|colored pencils)/)) {
+      return "lapis_cor";
+    }
+    if (inTitle(/(caneta|esferografica|esferográfica|gel pen|roller)/) || inText(/(caneta|esferografica|esferográfica|gel pen|roller)/)) {
+      return "caneta";
+    }
+    if (inTitle(/(marca texto|marcador|highlighter|fineliner)/) || inText(/(marca texto|marcador|highlighter|fineliner)/)) {
+      return "marcador";
+    }
+    if (inTitle(/(lapis|lápis|lapiseira|grafite)/) || inText(/(lapis|lápis|lapiseira|grafite)/)) {
+      return "lapis_grafite";
     }
     return null;
   }
 
   if (categorySlug === "organizacao_arquivo") {
-    if (/(pasta|arquivo|classificador|dossier|separador|envelope)/.test(normalized)) {
+    if (inTitle(/(capa com elastico|capa com elasticos|bolsa catalogo|bolsa catálogo|pasta|arquivo|classificador|dossier|separador|envelope)/) || inText(/(capa com elastico|capa com elasticos|bolsa catalogo|bolsa catálogo|pasta|arquivo|classificador|dossier|separador|envelope)/)) {
       return "pasta";
     }
-    if (/(etiquetas?|label|rotulo|rótulo)/.test(normalized)) {
+    if (inTitle(/(etiquetas?|label|rotulo|rótulo)/) || inText(/(etiquetas?|label|rotulo|rótulo)/)) {
       return "etiqueta";
     }
-    if (/(agrafador|stapler|saca\s*agrafos)/.test(normalized)) {
+    if (inTitle(/(agrafador|stapler|saca\s*agrafos)/) || inText(/(agrafador|stapler|saca\s*agrafos)/)) {
       return "agrafador";
     }
-    if (/\bagrafos\b/.test(normalized)) {
+    if (inTitle(/\bagrafos\b/) || inText(/\bagrafos\b/)) {
       return "agrafos";
     }
-    if (/\bclips?\b/.test(normalized)) {
+    if (inTitle(/\bclips?\b/) || inText(/\bclips?\b/)) {
       return "clips";
     }
-    if (/(post-it|post it|notas aderentes|bloco adesivo)/.test(normalized)) {
+    if (inTitle(/(post-it|post it|notas aderentes|bloco adesivo)/) || inText(/(post-it|post it|notas aderentes|bloco adesivo)/)) {
       return "bloco_aderente";
     }
     return null;
   }
 
   if (categorySlug === "geometria_corte") {
-    if (/tesoura/.test(normalized)) {
+    if (inTitle(/tesoura/) || inText(/tesoura/)) {
       return "tesoura";
     }
-    if (/compasso/.test(normalized)) {
+    if (inTitle(/compasso/) || inText(/compasso/)) {
       return "compasso";
     }
-    if (/(esquadro|transferidor)/.test(normalized)) {
+    if (inTitle(/(esquadro|transferidor)/) || inText(/(esquadro|transferidor)/)) {
       return "esquadro_transferidor";
     }
-    if (/(regua|régua)/.test(normalized)) {
+    if (inTitle(/(regua|régua)/) || inText(/(regua|régua)/)) {
       return "regua";
     }
     return null;
   }
 
   if (categorySlug === "transporte_escolar") {
-    if (/(estojo|penal|porta lapis|porta lápis|necessaire|nécessaire)/.test(normalized)) {
+    if (inTitle(/(estojo|penal|porta lapis|porta lápis|necessaire|nécessaire)/)) {
       return "estojo";
     }
-    if (/(mochila|backpack|trolley)/.test(normalized)) {
+    if (inTitle(/(mochila|backpack|trolley)/)) {
+      return "mochila";
+    }
+    if (
+      inText(/(estojo|penal|porta lapis|porta lápis|necessaire|nécessaire)/) &&
+      !inTitle(/(borracha|afiador|apontador|afia|agrafador|agrafos|classificador|capa com elastico|capa com elasticos)/)
+    ) {
+      return "estojo";
+    }
+    if (inText(/(mochila|backpack|trolley)/)) {
       return "mochila";
     }
     return null;
   }
 
   if (categorySlug === "artes") {
-    if (/pincel/.test(normalized)) {
-      return "pincel";
-    }
-    if (/(tinta|guache|aquarela|acrilica|acrílica|tempera|têmpera)/.test(normalized)) {
+    if (inTitle(/(tinta|guache|aquarela|acrilica|acrílica|tempera|têmpera)/) || inText(/(tinta|guache|aquarela|acrilica|acrílica|tempera|têmpera)/)) {
       return "tinta";
     }
-    if (/(papel artistico|papel artístico|cartolina|bloco desenho|croquis|sketch)/.test(normalized)) {
+    if (inTitle(/pincel/) || inText(/pincel/)) {
+      return "pincel";
+    }
+    if (inTitle(/(papel artistico|papel artístico|cartolina|bloco desenho|croquis|sketch)/) || inText(/(papel artistico|papel artístico|cartolina|bloco desenho|croquis|sketch)/)) {
       return "papel_artistico";
     }
-    if (/(kit artistico|kit artístico|conjunto artistico|conjunto artístico)/.test(normalized)) {
+    if (inTitle(/(kit artistico|kit artístico|conjunto artistico|conjunto artístico)/) || inText(/(kit artistico|kit artístico|conjunto artistico|conjunto artístico)/)) {
       return "kit_artistico";
     }
     return null;
   }
 
   if (categorySlug === "cola_adesivos") {
-    if (/(fita|adesiva|dupla face|rollafix|durex|washi|masking)/.test(normalized)) {
+    if (inTitle(/(corretor|corretivo|corrector|correctora|caneta corretora)/)) {
+      return null;
+    }
+    if (inTitle(/(fita|adesiva|dupla face|rollafix|durex|washi|masking)/) || inText(/(fita|adesiva|dupla face|rollafix|durex|washi|masking)/)) {
       return "fita";
     }
-    if (/(cola|bastao|bastão|liquida|líquida|pva|stick)/.test(normalized)) {
+    if (inTitle(/(cola|bastao|bastão|liquida|líquida|pva|stick)/) || inText(/(cola|bastao|bastão|liquida|líquida|pva|stick)/)) {
       return "cola";
     }
     return null;
   }
 
   if (categorySlug === "papel") {
-    if (/recarga/.test(normalized)) {
+    if (inTitle(/recarga/) || inText(/recarga/)) {
       return "recarga_papel";
     }
-    if (/(resma|papel a4|papel de impressao|papel de impressão|500 folhas|80g|70g)/.test(normalized)) {
+    if (inTitle(/(resma|papel a4|papel de impressao|papel de impressão|500 folhas|80g|70g)/) || inText(/(resma|papel a4|papel de impressao|papel de impressão|500 folhas|80g|70g)/)) {
       return "resma";
     }
     return null;
@@ -350,7 +365,7 @@ function inferAttributeWithRules(
 
   switch (attribute.key) {
     case "item_subtype": {
-      const subtype = detectItemSubtype(categorySlug, text);
+      const subtype = detectItemSubtype(categorySlug, text, product.normalizedTitle);
       return { value: subtype, confidence: subtype ? 0.9 : 0.1 };
     }
     case "format": {

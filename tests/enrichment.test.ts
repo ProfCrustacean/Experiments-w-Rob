@@ -214,6 +214,34 @@ describe("enrichment", () => {
     expect(escritaResult.attributeValues.point_size_mm).toBe(0.7);
     expect(escritaResult.attributeValues.pack_count).toBe(12);
 
+    const afiaResult = await enrichProduct(
+      {
+        sourceSku: "sku-afia",
+        title: "Afia com Deposito Duplo",
+        description: "Afiador para lapis escolar",
+        brand: "Maped",
+        normalizedTitle: "afia com deposito duplo",
+        normalizedDescription: "afiador para lapis escolar",
+        normalizedBrand: "maped",
+        normalizedText: "afia com deposito duplo afiador para lapis escolar maped",
+      },
+      {
+        ...baseCategory,
+        slug: "escrita",
+        attributes: {
+          schema_version: "1.0" as const,
+          category_name_pt: "escrita",
+          attributes: [
+            { key: "item_subtype", label_pt: "subtipo", type: "enum" as const, allowed_values: ["afiador", "lapis_grafite"], required: false },
+          ],
+        },
+      },
+      null,
+      0.7,
+    );
+
+    expect(afiaResult.attributeValues.item_subtype).toBe("afiador");
+
     const colaResult = await enrichProduct(
       {
         sourceSku: "sku-cola",
@@ -245,6 +273,34 @@ describe("enrichment", () => {
     expect(colaResult.attributeValues.item_subtype).toBe("cola");
     expect(colaResult.attributeValues.glue_type).toBe("liquida");
     expect(colaResult.attributeValues.volume_ml).toBe(110);
+
+    const corretorResult = await enrichProduct(
+      {
+        sourceSku: "sku-corretor",
+        title: "Caneta Correctora Liquida 8ml",
+        description: "",
+        brand: "Note!",
+        normalizedTitle: "caneta correctora liquida 8ml",
+        normalizedDescription: "",
+        normalizedBrand: "note",
+        normalizedText: "caneta correctora liquida 8ml note",
+      },
+      {
+        ...baseCategory,
+        slug: "escrita",
+        attributes: {
+          schema_version: "1.0" as const,
+          category_name_pt: "escrita",
+          attributes: [
+            { key: "item_subtype", label_pt: "subtipo", type: "enum" as const, allowed_values: ["caneta", "corretor"], required: false },
+          ],
+        },
+      },
+      null,
+      0.7,
+    );
+
+    expect(corretorResult.attributeValues.item_subtype).toBe("corretor");
   });
 
   it("does not infer glue_type from tape products", async () => {

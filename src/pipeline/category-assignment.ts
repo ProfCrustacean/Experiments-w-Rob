@@ -46,6 +46,7 @@ interface CandidateScore {
   compatibility: number;
   contradictionCount: number;
   lexicalEligible: boolean;
+  anchorHits: number;
   includeHits: number;
   excludeHits: number;
   strongExcluded: boolean;
@@ -120,7 +121,43 @@ function hasTerm(normalizedText: string, term: string): boolean {
   return regex.test(normalizedText);
 }
 
-function countTermHits(normalizedText: string, normalizedTitle: string, terms: string[]): number {
+const TITLE_POSITIVE_TERM_WEIGHT = 2;
+const BODY_POSITIVE_TERM_WEIGHT = 0.45;
+const TITLE_NEGATIVE_TERM_WEIGHT = 1;
+const BODY_NEGATIVE_TERM_WEIGHT = 0.35;
+
+const FAMILY_TITLE_ANCHORS: Record<string, RegExp[]> = {
+  cadernos_blocos: [/\bcaderno\b/, /\bbloco\b/, /\bbrochura\b/, /\bespiral\b/, /\bflashcards?\b/, /\brecarga\b/],
+  escrita: [
+    /\bafia(?:dor)?\b/,
+    /\bapontador\b/,
+    /\bborracha\b/,
+    /\bcaneta\b/,
+    /\blapis\b|\blapiseira\b/,
+    /\bmarcador(?:es)?\b/,
+    /\bcorret(?:or|ivo|ora)\b/,
+  ],
+  organizacao_arquivo: [
+    /\bagrafador\b/,
+    /\bagrafos\b/,
+    /\bclips?\b/,
+    /\bclassificador\b/,
+    /\bpasta\b/,
+    /\bcapa\s+com\s+elastic(?:o|os)\b/,
+    /\bbolsa\s+catalogo\b/,
+    /\betiquetas?\b/,
+    /\bpost[\s-]?it\b/,
+  ],
+  geometria_corte: [/\bregua\b/, /\besquadro\b/, /\btransferidor\b/, /\btesoura\b/, /\bcompasso\b/, /\bx[-\s]?ato\b/],
+  transporte_escolar: [/\bmochila\b/, /\bestojo\b/, /\bpenal\b/, /\btrolley\b/, /\bporta\s+lapis\b/],
+  artes: [/\baquarelas?\b/, /\bguache\b/, /\btinta\b/, /\bpinc(?:el|eis)\b/, /\bcarvao\b/],
+  cola_adesivos: [/\bcola\b/, /\bfita\b/, /\bdupla\s+face\b/, /\brollafix\b/],
+  papel: [/\bresmas?\b/, /\bpapel\s+a[34]\b/, /\b\d{2,3}\s*g\b/, /\bgramagem\b/, /\bnavigator\b/],
+  outros_escolares: [/\bcalculadora\b/],
+  fora_escopo_escolar: [/\bauriculares\b/, /\btelemovel\b/, /\btablet\b/, /\bshampoo\b/],
+};
+
+function countPositiveTermHits(normalizedText: string, normalizedTitle: string, terms: string[]): number {
   let hits = 0;
   for (const term of terms) {
     const normalizedTerm = normalizeText(term);
@@ -128,11 +165,35 @@ function countTermHits(normalizedText: string, normalizedTitle: string, terms: s
       continue;
     }
 
-    if (hasTerm(normalizedText, normalizedTerm)) {
-      hits += hasTerm(normalizedTitle, normalizedTerm) ? 2 : 1;
+    if (hasTerm(normalizedTitle, normalizedTerm)) {
+      hits += TITLE_POSITIVE_TERM_WEIGHT;
+    } else if (hasTerm(normalizedText, normalizedTerm)) {
+      hits += BODY_POSITIVE_TERM_WEIGHT;
     }
   }
   return hits;
+}
+
+function countNegativeTermHits(normalizedText: string, normalizedTitle: string, terms: string[]): number {
+  let hits = 0;
+  for (const term of terms) {
+    const normalizedTerm = normalizeText(term);
+    if (!normalizedTerm || normalizedTerm.length < 2) {
+      continue;
+    }
+
+    if (hasTerm(normalizedTitle, normalizedTerm)) {
+      hits += TITLE_NEGATIVE_TERM_WEIGHT;
+    } else if (hasTerm(normalizedText, normalizedTerm)) {
+      hits += BODY_NEGATIVE_TERM_WEIGHT;
+    }
+  }
+  return hits;
+}
+
+function countTitleAnchorHits(categorySlug: string, normalizedTitle: string): number {
+  const anchors = FAMILY_TITLE_ANCHORS[categorySlug] ?? [];
+  return anchors.reduce((count, pattern) => count + (pattern.test(normalizedTitle) ? 1 : 0), 0);
 }
 
 function estimateAttributeCompatibility(product: NormalizedCatalogProduct, category: TaxonomyCategory): number {
@@ -241,7 +302,7 @@ function detectCategoryContradictions(categorySlug: string, product: NormalizedC
 
   if (
     categorySlug === "organizacao_arquivo" &&
-    /(lapis de cor|caneta gel|tesoura escolar|mochila)/.test(text) &&
+    /(lapis de cor|caneta gel|tesoura escolar|mochila|resma|resmas|gramagem|80g|70g)/.test(text) &&
     !/(pasta|arquivo|etiquet|agrafador|agrafos|clips|post-it|aderente)/.test(text)
   ) {
     contradictions += 1;
@@ -249,7 +310,7 @@ function detectCategoryContradictions(categorySlug: string, product: NormalizedC
 
   if (
     categorySlug === "geometria_corte" &&
-    /(caneta|lapis|cola|mochila|resma)/.test(text) &&
+    /(caneta|lapis|lápis|marcador|borracha|afiador|apontador|afia|cola|mochila|resma)/.test(text) &&
     !/(regua|régua|esquadro|transferidor|tesoura|compasso)/.test(text)
   ) {
     contradictions += 1;
@@ -257,6 +318,16 @@ function detectCategoryContradictions(categorySlug: string, product: NormalizedC
 
   if (
     categorySlug === "transporte_escolar" &&
+    !/(mochila|backpack|trolley|estojo|penal|porta lapis|porta lápis)/.test(text)
+  ) {
+    contradictions += 1;
+  }
+
+  if (
+    categorySlug === "transporte_escolar" &&
+    /(borracha|afiador|apontador|afia|agrafador|agrafos|resma|regua|régua|tesoura|transferidor|cola|caneta|lapis|lápis|classificador|pasta|capa com elastico|capa com elasticos|bolsa catalogo|lombada)/.test(
+      text,
+    ) &&
     !/(mochila|backpack|trolley|estojo|penal|porta lapis|porta lápis)/.test(text)
   ) {
     contradictions += 1;
@@ -271,7 +342,7 @@ function detectCategoryContradictions(categorySlug: string, product: NormalizedC
 
   if (
     categorySlug === "papel" &&
-    /(caneta|lapis|lápis|agrafador|mochila|estojo)/.test(text) &&
+    /(caneta|lapis|lápis|agrafador|mochila|estojo|capa com elastico|classificador|pasta arquivo)/.test(text) &&
     !/(resma|papel|folhas|gramagem|g\/m2|g\/m²)/.test(text)
   ) {
     contradictions += 1;
@@ -314,6 +385,10 @@ function shouldUseLlmDisambiguation(input: {
   requiredMargin: number;
 }): boolean {
   if (!input.top2) {
+    return false;
+  }
+
+  if (input.top1.anchorHits > 0 && input.top1.lexical >= 0.7) {
     return false;
   }
 
@@ -445,7 +520,9 @@ function pickFallbackRescueCandidate(ranked: CandidateScore[]): CandidateScore |
     }
 
     const hasStrongLexicalEvidence =
-      candidate.includeHits >= 2 || (candidate.includeHits >= 1 && candidate.lexical >= 0.6);
+      candidate.anchorHits > 0 ||
+      candidate.includeHits >= 1.8 ||
+      (candidate.includeHits >= 1 && candidate.lexical >= 0.6);
     const hasStrongSemanticEvidence = candidate.semantic >= 0.74 && candidate.compatibility >= 0.3;
     if (
       (hasStrongLexicalEvidence || hasStrongSemanticEvidence) &&
@@ -499,25 +576,33 @@ export async function assignCategoriesForProducts(
           const excludeTerms = rule?.exclude_any ?? [];
           const strongExcludeTerms = rule?.strong_exclude_any ?? [];
 
-          const includeHits = countTermHits(normalizedText, product.normalizedTitle, includeTerms);
+          const includeHits = countPositiveTermHits(normalizedText, product.normalizedTitle, includeTerms);
+          const anchorHits = countTitleAnchorHits(category.slug, product.normalizedTitle);
           const includeAllMisses = includeAllTerms.filter((term) => !hasTerm(normalizedText, term)).length;
-          const excludeHits = excludeTerms.filter((term) => hasTerm(normalizedText, term)).length;
-          const strongExcludeHits = strongExcludeTerms.filter((term) => hasTerm(normalizedText, term)).length;
+          const excludeHits = countNegativeTermHits(normalizedText, product.normalizedTitle, excludeTerms);
+          const strongExcludeHits = countNegativeTermHits(
+            normalizedText,
+            product.normalizedTitle,
+            strongExcludeTerms,
+          );
 
-          const includeAnySatisfied = includeTerms.length === 0 || includeHits > 0;
+          const includeAnySatisfied = includeTerms.length === 0 || includeHits >= 0.5 || anchorHits > 0;
           const includeAllSatisfied = includeAllTerms.length === 0 || includeAllMisses === 0;
           const lexicalEligible = includeAnySatisfied && includeAllSatisfied;
 
-          const lexicalDenominator = includeTerms.length === 0 ? 2 : Math.max(2, Math.ceil(includeTerms.length / 2));
-          let lexicalScore = includeTerms.length === 0 ? 0.35 : Math.min(1, includeHits / lexicalDenominator);
+          const lexicalDenominator = 2.2;
+          let lexicalScore =
+            includeTerms.length === 0
+              ? 0.32
+              : Math.min(1, (includeHits + anchorHits * 0.9) / lexicalDenominator);
 
           if (!includeAnySatisfied) {
-            lexicalScore *= 0.45;
+            lexicalScore = 0;
           }
           if (!includeAllSatisfied) {
-            lexicalScore *= 0.45;
+            lexicalScore *= 0.4;
           }
-          lexicalScore = clampScore(lexicalScore - Math.min(0.3, excludeHits * 0.08));
+          lexicalScore = clampScore(lexicalScore - Math.min(0.5, excludeHits * 0.2));
 
           const categoryVector = categoryVectorBySlug.get(category.slug);
           const semanticRaw = categoryVector ? cosineSimilarity(productVector, categoryVector) : 0;
@@ -525,14 +610,26 @@ export async function assignCategoriesForProducts(
           const compatibilityScore = estimateAttributeCompatibility(product, category);
           const contradictionCount = detectCategoryContradictions(category.slug, product);
 
-          const strongExcluded = strongExcludeHits > 0;
-          let score = 0.45 * lexicalScore + 0.35 * semanticScore + 0.2 * compatibilityScore;
-          score -= contradictionCount * 0.18;
-          score -= Math.min(0.24, excludeHits * 0.12);
+          const strongExcluded = strongExcludeHits >= 1;
+          let score = 0.5 * lexicalScore + 0.33 * semanticScore + 0.17 * compatibilityScore;
+          score += Math.min(0.18, anchorHits * 0.06);
+          score -= contradictionCount * 0.22;
+          score -= Math.min(0.34, excludeHits * 0.16);
+
+          if (!category.is_fallback && includeHits < 0.5 && anchorHits === 0 && excludeHits > 0.2) {
+            score -= 0.22;
+          }
+          if (!category.is_fallback && includeHits < 0.5 && anchorHits === 0 && contradictionCount > 0) {
+            score -= 0.18;
+          }
+          if (!category.is_fallback && anchorHits > 0 && contradictionCount === 0) {
+            score += 0.05;
+          }
 
           if (category.is_fallback) {
-            score = Math.max(score * 0.35, 0.12 + semanticScore * 0.08);
-            lexicalScore = Math.min(lexicalScore, 0.06);
+            const fallbackBase = includeHits > 0 ? 0.12 : 0.06;
+            score = Math.max(score * 0.25, fallbackBase + semanticScore * 0.06);
+            lexicalScore = Math.min(lexicalScore, 0.05);
           }
 
           if (strongExcluded) {
@@ -547,6 +644,7 @@ export async function assignCategoriesForProducts(
             compatibility: compatibilityScore,
             contradictionCount,
             lexicalEligible,
+            anchorHits,
             includeHits,
             excludeHits,
             strongExcluded,
@@ -636,6 +734,9 @@ export async function assignCategoriesForProducts(
         const confidenceReasons: string[] = ["family_assignment"];
         if (top1.lexical >= 0.6) {
           confidenceReasons.push("strong_lexical_match");
+        }
+        if (top1.anchorHits > 0) {
+          confidenceReasons.push("title_anchor_match");
         }
         if (top1.semantic >= 0.75) {
           confidenceReasons.push("strong_semantic_match");

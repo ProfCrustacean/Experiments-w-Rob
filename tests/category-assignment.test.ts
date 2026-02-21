@@ -188,7 +188,111 @@ describe("category assignment", () => {
     const assignment = output.assignmentsBySku.get("sku-fallback-rescue");
     expect(assignment?.categorySlug).toBe("escrita");
     expect(assignment?.isFallbackCategory).toBe(false);
-    expect(assignment?.autoDecision).toBe("review");
+    expect(assignment?.autoDecision).toBe("auto");
     expect(assignment?.confidenceReasons).toContain("family_assignment");
+  });
+
+  it("routes afia products to escrita", async () => {
+    const products = normalizeRows([
+      {
+        sourceSku: "sku-afia",
+        title: "Afia com Deposito Duplo",
+        description: "Afia para lapis escolar com deposito",
+        brand: "Maped",
+      },
+    ]);
+
+    const provider = new FallbackProvider(256);
+    const output = await assignCategoriesForProducts({
+      products,
+      embeddingProvider: provider,
+      llmProvider: provider,
+      autoMinConfidence: 0.76,
+      autoMinMargin: 0.1,
+      highRiskExtraConfidence: 0.08,
+      llmConcurrency: 1,
+      embeddingBatchSize: 8,
+      embeddingConcurrency: 2,
+    });
+
+    expect(output.assignmentsBySku.get("sku-afia")?.categorySlug).toBe("escrita");
+  });
+
+  it("routes resma products to papel", async () => {
+    const products = normalizeRows([
+      {
+        sourceSku: "sku-resma",
+        title: "Resma de Papel A4 80g 500 folhas",
+        description: "Papel para impressao escolar",
+        brand: "Navigator",
+      },
+    ]);
+
+    const provider = new FallbackProvider(256);
+    const output = await assignCategoriesForProducts({
+      products,
+      embeddingProvider: provider,
+      llmProvider: provider,
+      autoMinConfidence: 0.76,
+      autoMinMargin: 0.1,
+      highRiskExtraConfidence: 0.08,
+      llmConcurrency: 1,
+      embeddingBatchSize: 8,
+      embeddingConcurrency: 2,
+    });
+
+    expect(output.assignmentsBySku.get("sku-resma")?.categorySlug).toBe("papel");
+  });
+
+  it("routes borracha products to escrita", async () => {
+    const products = normalizeRows([
+      {
+        sourceSku: "sku-borracha",
+        title: "Borracha Branca Escolar",
+        description: "Borracha para apagar grafite",
+        brand: "Maped",
+      },
+    ]);
+
+    const provider = new FallbackProvider(256);
+    const output = await assignCategoriesForProducts({
+      products,
+      embeddingProvider: provider,
+      llmProvider: provider,
+      autoMinConfidence: 0.76,
+      autoMinMargin: 0.1,
+      highRiskExtraConfidence: 0.08,
+      llmConcurrency: 1,
+      embeddingBatchSize: 8,
+      embeddingConcurrency: 2,
+    });
+
+    expect(output.assignmentsBySku.get("sku-borracha")?.categorySlug).toBe("escrita");
+  });
+
+  it("routes capa com elastico products to organizacao_arquivo", async () => {
+    const products = normalizeRows([
+      {
+        sourceSku: "sku-capa-elastico",
+        title: "Capa com Elastico A4 Frozen",
+        description: "Classificador para folhas e arquivo escolar",
+        brand: "Note!",
+      },
+    ]);
+
+    const provider = new FallbackProvider(256);
+    const output = await assignCategoriesForProducts({
+      products,
+      embeddingProvider: provider,
+      llmProvider: provider,
+      autoMinConfidence: 0.76,
+      autoMinMargin: 0.1,
+      highRiskExtraConfidence: 0.08,
+      llmConcurrency: 1,
+      embeddingBatchSize: 8,
+      embeddingConcurrency: 2,
+    });
+
+    expect(output.assignmentsBySku.get("sku-capa-elastico")?.categorySlug).toBe("organizacao_arquivo");
   });
 });
