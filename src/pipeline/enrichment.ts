@@ -21,9 +21,9 @@ const BLOCKING_CATEGORY_REASONS = new Set([
   "below_auto_confidence",
   "low_margin",
   "generic_or_fallback_category",
-  "mixed_ink_signals",
   "category_contradiction",
   "out_of_scope_category",
+  "missing_variant_for_auto",
 ]);
 
 const taxonomy = loadTaxonomy();
@@ -90,20 +90,6 @@ function detectCompartmentCount(text: string): number | null {
   return null;
 }
 
-function detectMaterialText(text: string): string | null {
-  const normalized = normalizeText(text);
-  if (/(silicone)/.test(normalized)) {
-    return "silicone";
-  }
-  if (/(poliester|polyester|tecido|canvas|nylon|pano|neoprene)/.test(normalized)) {
-    return "tecido";
-  }
-  if (/(plastico|plastica|plástico|plástica|eva|vinil|metal|metalico|metálico)/.test(normalized)) {
-    return "plastico";
-  }
-  return null;
-}
-
 function detectTipType(text: string): string | null {
   const normalized = normalizeText(text);
   if (/(chanfrad|chisel|marca texto|highlighter)/.test(normalized)) {
@@ -126,6 +112,209 @@ function detectTargetAge(text: string): string | null {
   if (/(juvenil|teen|adolescente)/.test(normalized)) {
     return "juvenil";
   }
+  return null;
+}
+
+function detectPaintType(text: string): string | null {
+  const normalized = normalizeText(text);
+  if (/guache/.test(normalized)) {
+    return "guache";
+  }
+  if (/aquarela/.test(normalized)) {
+    return "aquarela";
+  }
+  if (/(acrilica|acrílica)/.test(normalized)) {
+    return "acrilica";
+  }
+  if (/(tempera|têmpera)/.test(normalized)) {
+    return "tempera";
+  }
+  return null;
+}
+
+function detectBrushType(text: string): string | null {
+  const normalized = normalizeText(text);
+  if (/(pincel\s*chato|flat brush)/.test(normalized)) {
+    return "chato";
+  }
+  if (/(pincel\s*redondo|round brush)/.test(normalized)) {
+    return "redondo";
+  }
+  if (/esponja/.test(normalized)) {
+    return "esponja";
+  }
+  return null;
+}
+
+function detectTapeType(text: string): string | null {
+  const normalized = normalizeText(text);
+  if (/(dupla\s*face|double\s*face)/.test(normalized)) {
+    return "dupla_face";
+  }
+  if (/(masking|papel crepe|fita de papel)/.test(normalized)) {
+    return "papel";
+  }
+  if (/(fita|adesiva|durex|rollafix|washi)/.test(normalized)) {
+    return "transparente";
+  }
+  return null;
+}
+
+function detectColorSet(text: string): boolean | null {
+  const normalized = normalizeText(text);
+  if (/(\d+\s*cores|multicor|colorido|sortido)/.test(normalized)) {
+    return true;
+  }
+  if (/(preto|azul|vermelho|unica cor|única cor)/.test(normalized)) {
+    return false;
+  }
+  return null;
+}
+
+function detectItemSubtype(categorySlug: string, text: string): string | null {
+  const normalized = normalizeText(text);
+
+  if (categorySlug === "cadernos_blocos") {
+    if (/(flash\s*cards?|fichas?)/.test(normalized)) {
+      return "flashcards";
+    }
+    if (/(bloco.*desenho|desenho|croquis|sketch|cartolina|papel vegetal)/.test(normalized)) {
+      return "bloco_desenho";
+    }
+    if (/recarga/.test(normalized)) {
+      return "recarga";
+    }
+    if (/(bloco|apontamentos|bloco de notas)/.test(normalized)) {
+      return "bloco_apontamentos";
+    }
+    if (/(caderno|espiral|brochura|caderno inteligente)/.test(normalized)) {
+      return "caderno";
+    }
+    return null;
+  }
+
+  if (categorySlug === "escrita") {
+    if (/(lapis de cor|lápis de cor|colored pencils)/.test(normalized)) {
+      return "lapis_cor";
+    }
+    if (/(lapis|lápis|lapiseira|grafite)/.test(normalized)) {
+      return "lapis_grafite";
+    }
+    if (/(caneta|esferografica|esferográfica|gel pen|roller)/.test(normalized)) {
+      return "caneta";
+    }
+    if (/(marca texto|marcador|highlighter|fineliner)/.test(normalized)) {
+      return "marcador";
+    }
+    if (/(borracha|eraser)/.test(normalized)) {
+      return "borracha";
+    }
+    if (/(afiador|apontador|afia)/.test(normalized)) {
+      return "afiador";
+    }
+    if (/(corretor|corretivo)/.test(normalized)) {
+      return "corretor";
+    }
+    return null;
+  }
+
+  if (categorySlug === "organizacao_arquivo") {
+    if (/(pasta|arquivo|classificador|dossier|separador|envelope)/.test(normalized)) {
+      return "pasta";
+    }
+    if (/(etiquetas?|label|rotulo|rótulo)/.test(normalized)) {
+      return "etiqueta";
+    }
+    if (/(agrafador|stapler|saca\s*agrafos)/.test(normalized)) {
+      return "agrafador";
+    }
+    if (/\bagrafos\b/.test(normalized)) {
+      return "agrafos";
+    }
+    if (/\bclips?\b/.test(normalized)) {
+      return "clips";
+    }
+    if (/(post-it|post it|notas aderentes|bloco adesivo)/.test(normalized)) {
+      return "bloco_aderente";
+    }
+    return null;
+  }
+
+  if (categorySlug === "geometria_corte") {
+    if (/tesoura/.test(normalized)) {
+      return "tesoura";
+    }
+    if (/compasso/.test(normalized)) {
+      return "compasso";
+    }
+    if (/(esquadro|transferidor)/.test(normalized)) {
+      return "esquadro_transferidor";
+    }
+    if (/(regua|régua)/.test(normalized)) {
+      return "regua";
+    }
+    return null;
+  }
+
+  if (categorySlug === "transporte_escolar") {
+    if (/(estojo|penal|porta lapis|porta lápis|necessaire|nécessaire)/.test(normalized)) {
+      return "estojo";
+    }
+    if (/(mochila|backpack|trolley)/.test(normalized)) {
+      return "mochila";
+    }
+    return null;
+  }
+
+  if (categorySlug === "artes") {
+    if (/pincel/.test(normalized)) {
+      return "pincel";
+    }
+    if (/(tinta|guache|aquarela|acrilica|acrílica|tempera|têmpera)/.test(normalized)) {
+      return "tinta";
+    }
+    if (/(papel artistico|papel artístico|cartolina|bloco desenho|croquis|sketch)/.test(normalized)) {
+      return "papel_artistico";
+    }
+    if (/(kit artistico|kit artístico|conjunto artistico|conjunto artístico)/.test(normalized)) {
+      return "kit_artistico";
+    }
+    return null;
+  }
+
+  if (categorySlug === "cola_adesivos") {
+    if (/(fita|adesiva|dupla face|rollafix|durex|washi|masking)/.test(normalized)) {
+      return "fita";
+    }
+    if (/(cola|bastao|bastão|liquida|líquida|pva|stick)/.test(normalized)) {
+      return "cola";
+    }
+    return null;
+  }
+
+  if (categorySlug === "papel") {
+    if (/recarga/.test(normalized)) {
+      return "recarga_papel";
+    }
+    if (/(resma|papel a4|papel de impressao|papel de impressão|500 folhas|80g|70g)/.test(normalized)) {
+      return "resma";
+    }
+    return null;
+  }
+
+  if (categorySlug === "outros_escolares") {
+    if (/calculadora/.test(normalized)) {
+      return "calculadora";
+    }
+    if (/(kit escolar|conjunto escolar)/.test(normalized)) {
+      return "kit_escolar";
+    }
+    if (/(acessorio escolar|acessório escolar|material escolar)/.test(normalized)) {
+      return "acessorio_escolar";
+    }
+    return null;
+  }
+
   return null;
 }
 
@@ -160,6 +349,10 @@ function inferAttributeWithRules(
   const text = `${product.normalizedTitle} ${product.normalizedDescription}`;
 
   switch (attribute.key) {
+    case "item_subtype": {
+      const subtype = detectItemSubtype(categorySlug, text);
+      return { value: subtype, confidence: subtype ? 0.9 : 0.1 };
+    }
     case "format": {
       const format = detectFormat(text);
       return { value: format, confidence: format ? 0.92 : 0.1 };
@@ -192,38 +385,29 @@ function inferAttributeWithRules(
       const tipType = detectTipType(text);
       return { value: tipType, confidence: tipType ? 0.86 : 0.1 };
     }
-    case "material": {
-      const material = detectMaterialText(text);
-      return { value: material, confidence: material ? 0.84 : 0.1 };
-    }
     case "glue_type": {
-      if (/(fita|adesiva|dupla face|rollafix|corretora|corretor)/.test(text)) {
+      if (/(fita|adesiva|dupla face|rollafix|washi|masking)/.test(text)) {
         return { value: null, confidence: 0.1 };
       }
       if (/(bastao|bastão|stick|stic)/.test(text)) {
         return { value: "bastao", confidence: 0.9 };
       }
-      if (/(liquida|liquido|liquid|branca|pva|cola escolar|super cola)/.test(text)) {
+      if (/(liquida|líquida|liquid|branca|pva|cola escolar|super cola)/.test(text)) {
         return { value: "liquida", confidence: 0.9 };
       }
-      if (categorySlug === "cola-bastao" && /\bcola\b/.test(text)) {
-        return { value: "bastao", confidence: 0.7 };
-      }
-      if (categorySlug === "cola-liquida" && /\bcola\b/.test(text)) {
-        return { value: "liquida", confidence: 0.72 };
-      }
       return { value: null, confidence: 0.1 };
+    }
+    case "tape_type": {
+      const tapeType = detectTapeType(text);
+      return { value: tapeType, confidence: tapeType ? 0.86 : 0.1 };
     }
     case "volume_ml": {
       const volume = parseNumber(text, /(\d{1,4})\s*ml/);
       if (volume) {
         return { value: volume, confidence: 0.84 };
       }
-      if (categorySlug === "cola-liquida" || categorySlug === "cola-bastao") {
-        const grams = parseNumber(text, /(\d{1,4}(?:[.,]\d+)?)\s*g\b/);
-        return { value: grams, confidence: grams ? 0.68 : 0.1 };
-      }
-      return { value: null, confidence: 0.1 };
+      const grams = parseNumber(text, /(\d{1,4}(?:[.,]\d+)?)\s*g\b/);
+      return { value: grams, confidence: grams ? 0.68 : 0.1 };
     }
     case "has_wheels": {
       const value = detectBoolean(text, /(com rodas|rodas|trolley)/, /(sem rodas)/);
@@ -238,7 +422,7 @@ function inferAttributeWithRules(
       return { value: targetAge, confidence: targetAge ? 0.8 : 0.1 };
     }
     case "tip_safety": {
-      const tipSafety = detectBoolean(text, /(ponta redonda|seguranca)/, /(ponta afiada)/);
+      const tipSafety = detectBoolean(text, /(ponta redonda|seguranca|segurança)/, /(ponta afiada)/);
       return { value: tipSafety, confidence: tipSafety !== null ? 0.82 : 0.1 };
     }
     case "length_cm": {
@@ -249,13 +433,32 @@ function inferAttributeWithRules(
       if (/gel/.test(text)) {
         return { value: "gel", confidence: 0.9 };
       }
-      if (/(esferografica|esferografico)/.test(text)) {
+      if (/(esferografica|esferografico|esferográfica|esferográfico|ballpoint|bic|cristal)/.test(text)) {
         return { value: "esferografica", confidence: 0.88 };
       }
       if (/roller/.test(text)) {
         return { value: "roller", confidence: 0.88 };
       }
+      if (/(marcador|marca texto|highlighter)/.test(text)) {
+        return { value: "marcador", confidence: 0.82 };
+      }
       return { value: null, confidence: 0.1 };
+    }
+    case "paint_type": {
+      const paintType = detectPaintType(text);
+      return { value: paintType, confidence: paintType ? 0.85 : 0.1 };
+    }
+    case "brush_type": {
+      const brushType = detectBrushType(text);
+      return { value: brushType, confidence: brushType ? 0.82 : 0.1 };
+    }
+    case "weight_gsm": {
+      const gsm = parseNumber(text, /(\d{2,3})\s*(?:g\/m2|g\/m²|g)\b/);
+      return { value: gsm, confidence: gsm ? 0.82 : 0.1 };
+    }
+    case "color_set": {
+      const colorSet = detectColorSet(text);
+      return { value: colorSet, confidence: colorSet !== null ? 0.82 : 0.1 };
     }
     default:
       return { value: null, confidence: 0.05 };
@@ -373,7 +576,12 @@ function applyNumberPolicy(
     }
   }
 
-  if (attribute.key === "pack_count" && value > 80 && SHEET_CONTEXT_REGEX.test(productText) && !PACK_CONTEXT_REGEX.test(productText)) {
+  if (
+    attribute.key === "pack_count" &&
+    value > 80 &&
+    SHEET_CONTEXT_REGEX.test(productText) &&
+    !PACK_CONTEXT_REGEX.test(productText)
+  ) {
     remapSheetCount = value;
     reasons.push("pack_count_suspect_sheet_count");
     return { value: null, reasons, remapSheetCount };
@@ -382,38 +590,52 @@ function applyNumberPolicy(
   return { value, reasons, remapSheetCount };
 }
 
-function applyCategoryAttributeConsistency(
+function applyFamilyCrossChecks(
   categorySlug: string,
-  attributeKey: string,
-  value: string | number | boolean | null,
-): { value: string | number | boolean | null; reasons: string[] } {
-  const reasons: string[] = [];
+  attributeValues: Record<string, string | number | boolean | null>,
+  reasons: string[],
+): void {
+  const subtype = String(attributeValues.item_subtype ?? "");
 
-  if (value === null || value === "") {
-    return { value, reasons };
+  if (categorySlug === "escrita") {
+    if (subtype === "caneta" && attributeValues.hardness !== null && attributeValues.hardness !== "") {
+      attributeValues.hardness = null;
+      reasons.push("contradiction_hardness_for_caneta");
+    }
+
+    if (
+      (subtype === "lapis_grafite" || subtype === "lapis_cor") &&
+      attributeValues.ink_type !== null &&
+      attributeValues.ink_type !== ""
+    ) {
+      attributeValues.ink_type = null;
+      reasons.push("contradiction_ink_type_for_lapis");
+    }
   }
 
-  if (categorySlug.startsWith("caneta") && attributeKey === "hardness") {
-    reasons.push("contradiction_hardness_for_caneta");
-    return { value: null, reasons };
-  }
+  if (categorySlug === "cola_adesivos") {
+    if (subtype === "fita" && attributeValues.glue_type !== null && attributeValues.glue_type !== "") {
+      attributeValues.glue_type = null;
+      reasons.push("contradiction_glue_type_for_fita");
+    }
 
-  if ((categorySlug === "lapis-hb" || categorySlug === "lapis-cor") && attributeKey === "ink_type") {
-    reasons.push("contradiction_ink_type_for_lapis");
-    return { value: null, reasons };
-  }
+    if (subtype === "cola" && attributeValues.tape_type !== null && attributeValues.tape_type !== "") {
+      attributeValues.tape_type = null;
+      reasons.push("contradiction_tape_type_for_cola");
+    }
 
-  if (categorySlug === "cola-bastao" && attributeKey === "glue_type" && value !== "bastao") {
-    reasons.push("contradiction_glue_type_bastao");
-    return { value: null, reasons };
+    if (
+      String(attributeValues.glue_type ?? "") === "bastao" &&
+      String(attributeValues.item_subtype ?? "") === "fita"
+    ) {
+      attributeValues.glue_type = null;
+      reasons.push("contradiction_glue_type_vs_subtype");
+    }
   }
+}
 
-  if (categorySlug === "cola-liquida" && attributeKey === "glue_type" && value !== "liquida") {
-    reasons.push("contradiction_glue_type_liquida");
-    return { value: null, reasons };
-  }
-
-  return { value, reasons };
+function shouldRequireSubtypeForAuto(categorySlug: string): boolean {
+  return categorySlug !== "fora_escopo_escolar";
 }
 
 export async function enrichProduct(
@@ -513,7 +735,6 @@ export function enrichProductWithSignals(
     const llmValue = coerceValue(attribute, llmValues[key]);
     const llmScore = sanitizeConfidence(llmConfidence[key]);
 
-    // Deterministic parser is primary; LLM only fills missing values.
     let chosenValue = ruleValue;
     let chosenConfidence = ruleScore;
 
@@ -550,12 +771,6 @@ export function enrichProductWithSignals(
       }
     }
 
-    const consistency = applyCategoryAttributeConsistency(category.slug, key, chosenValue);
-    chosenValue = consistency.value;
-    for (const reason of consistency.reasons) {
-      reasons.push(reason);
-    }
-
     if (key === "ruling" && chosenValue !== null) {
       if (chosenValue === "quadriculado" && /pautado/.test(productText) && !/quadriculado/.test(productText)) {
         reasons.push("contradiction_ruling_text");
@@ -581,6 +796,17 @@ export function enrichProductWithSignals(
     if (attribute.required && (chosenValue === null || chosenValue === "")) {
       reasons.push(`missing_required_${key}`);
     }
+  }
+
+  applyFamilyCrossChecks(category.slug, attributeValues, reasons);
+
+  if (
+    category.autoDecision === "auto" &&
+    shouldRequireSubtypeForAuto(category.slug) &&
+    category.attributes.attributes.some((attribute) => attribute.key === "item_subtype") &&
+    (attributeValues.item_subtype === null || attributeValues.item_subtype === undefined || attributeValues.item_subtype === "")
+  ) {
+    reasons.push("missing_variant_for_auto");
   }
 
   const hasRequiredAttributes = category.attributes.attributes.some((attribute) => attribute.required);

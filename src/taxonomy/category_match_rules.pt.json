@@ -1,356 +1,106 @@
 {
-  "schema_version": "1.2",
+  "schema_version": "2.0",
   "categories": [
     {
-      "slug": "caderno-a4-pautado",
-      "include_any": ["caderno", "espiral", "brochura", "notebook", "a4", "pautado", "linhado"],
-      "include_all": ["caderno"],
-      "exclude_any": ["quadriculado", "milimetrado", "pontilhado", "bolsa catalogo", "bolsas catalogo", "separador", "discos", "classificador", "portefolio", "portfolio"],
-      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "resma", "pasta arquivo", "classificador", "portefolio", "portfolio", "bolsa catalogo", "separador"],
-      "high_risk": true,
-      "auto_min_confidence": 0.68,
-      "auto_min_margin": 0.08
-    },
-    {
-      "slug": "caderno-a4-quadriculado",
-      "include_any": ["caderno", "espiral", "brochura", "a4", "quadriculado", "milimetrado"],
-      "include_all": ["caderno"],
-      "exclude_any": ["pautado", "pontilhado", "bolsa catalogo", "bolsas catalogo", "separador", "discos", "classificador", "portefolio", "portfolio"],
-      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "resma", "pasta arquivo", "classificador", "portefolio", "portfolio", "bolsa catalogo", "separador"],
-      "high_risk": true,
-      "auto_min_confidence": 0.7,
-      "auto_min_margin": 0.08
-    },
-    {
-      "slug": "caderno-a5-pautado",
-      "include_any": ["caderno", "espiral", "brochura", "a5", "pautado", "linhado", "caderno inteligente"],
-      "include_all": ["caderno"],
-      "exclude_any": ["quadriculado", "milimetrado", "pontilhado", "bolsa catalogo", "bolsas catalogo", "separador", "discos", "classificador", "portefolio", "portfolio"],
-      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "resma", "pasta arquivo", "classificador", "portefolio", "portfolio", "bolsa catalogo", "separador"],
-      "high_risk": true,
-      "auto_min_confidence": 0.68,
-      "auto_min_margin": 0.08
-    },
-    {
-      "slug": "caderno-a5-quadriculado",
-      "include_any": ["caderno", "espiral", "brochura", "a5", "quadriculado", "milimetrado"],
-      "include_all": ["caderno"],
-      "exclude_any": ["pautado", "pontilhado", "bolsa catalogo", "bolsas catalogo", "separador", "discos", "classificador", "portefolio", "portfolio"],
-      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "resma", "pasta arquivo", "classificador", "portefolio", "portfolio", "bolsa catalogo", "separador"],
-      "high_risk": true,
-      "auto_min_confidence": 0.7,
-      "auto_min_margin": 0.08
-    },
-    {
-      "slug": "caderno-a5-liso",
-      "include_any": ["caderno", "a5", "liso", "sem pauta", "blank", "caderno inteligente"],
-      "include_all": ["caderno"],
-      "exclude_any": ["pautado", "quadriculado", "milimetrado", "bolsa catalogo", "bolsas catalogo", "separador", "discos", "classificador", "portefolio", "portfolio"],
-      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "resma", "pasta arquivo", "classificador", "portefolio", "portfolio", "bolsa catalogo", "separador"],
-      "high_risk": true,
-      "auto_min_confidence": 0.68,
-      "auto_min_margin": 0.08
-    },
-    {
-      "slug": "caneta-esferografica",
-      "include_any": ["caneta", "esferografica", "esferográfica", "ballpoint", "roller", "retratil", "retrátil", "esferografica clip", "bic", "cristal"],
+      "slug": "cadernos_blocos",
+      "include_any": ["caderno", "espiral", "brochura", "bloco", "apontamentos", "flashcards", "recarga"],
       "include_all": [],
-      "exclude_any": ["gel pen", "tinta gel", "marcador", "fineliner", "ponta pincel"],
-      "strong_exclude_any": ["lapis", "lápis", "afia", "agrafador", "marca texto"],
+      "exclude_any": ["mochila", "estojo", "agrafador", "agrafos", "cola liquida", "fita adesiva"],
+      "strong_exclude_any": ["auriculares", "telemovel", "tablet", "fones", "shampoo"],
       "high_risk": true,
-      "auto_min_confidence": 0.66,
-      "auto_min_margin": 0.07
+      "auto_min_confidence": 0.78,
+      "auto_min_margin": 0.1
     },
     {
-      "slug": "caneta-gel",
-      "include_any": ["caneta", "gel", "gel pen", "esferografica gel", "esferográfica gel", "sarasa"],
-      "include_all": ["gel"],
-      "exclude_any": ["marca texto"],
-      "strong_exclude_any": ["lapis", "lápis", "marcador", "afia", "agrafador"],
-      "high_risk": false,
-      "auto_min_confidence": 0.66,
-      "auto_min_margin": 0.07
-    },
-    {
-      "slug": "marcador-texto",
-      "include_any": ["marcador", "marca texto", "highlighter", "fineliner", "brush pen"],
+      "slug": "escrita",
+      "include_any": ["caneta", "esferografica", "gel", "lapis", "lapiseira", "marcador", "borracha", "afiador", "corretor"],
       "include_all": [],
-      "exclude_any": ["pagina", "página", "indice", "índice", "separador", "autocolante", "sticker", "adesivo"],
-      "strong_exclude_any": ["lapis", "lápis", "caneta", "afia", "agrafador", "agrafos", "etiquetas", "pasta arquivo"],
+      "exclude_any": ["mochila", "estojo", "resma", "pasta arquivo", "fita adesiva"],
+      "strong_exclude_any": ["auriculares", "telemovel", "tablet", "shampoo", "garrafa termica"],
       "high_risk": true,
-      "auto_min_confidence": 0.67,
-      "auto_min_margin": 0.08
+      "auto_min_confidence": 0.77,
+      "auto_min_margin": 0.1
     },
     {
-      "slug": "lapis-hb",
-      "include_any": ["lapis", "lápis", "grafite", "hb", "2b", "b", "h", "lapiseira"],
-      "include_all": ["lapis"],
-      "exclude_any": ["de cor", "aquarela", "pastel", "cera", "marcador", "caneta"],
-      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "cola", "post-it", "notas aderentes"],
+      "slug": "organizacao_arquivo",
+      "include_any": ["pasta", "arquivo", "classificador", "dossier", "etiquetas", "agrafador", "agrafos", "clips", "post-it", "notas aderentes"],
+      "include_all": [],
+      "exclude_any": ["caderno", "lapis de cor", "caneta gel", "mochila"],
+      "strong_exclude_any": ["auriculares", "telemovel", "tablet", "shampoo"],
+      "high_risk": true,
+      "auto_min_confidence": 0.77,
+      "auto_min_margin": 0.1
+    },
+    {
+      "slug": "geometria_corte",
+      "include_any": ["regua", "régua", "esquadro", "transferidor", "tesoura", "compasso"],
+      "include_all": [],
+      "exclude_any": ["caneta", "lapis", "mochila", "cola"],
+      "strong_exclude_any": ["auriculares", "telemovel", "tablet", "shampoo"],
       "high_risk": false,
-      "auto_min_confidence": 0.62,
-      "auto_min_margin": 0.06
+      "auto_min_confidence": 0.76,
+      "auto_min_margin": 0.1
     },
     {
-      "slug": "lapis-cor",
-      "include_any": ["lapis de cor", "lápis de cor", "colored pencils", "24 cores", "12 cores", "36 cores"],
-      "include_all": ["lapis", "cor"],
-      "exclude_any": ["aquarela", "caneta", "marcador"],
-      "strong_exclude_any": ["afia", "agrafador", "agrafos", "etiquetas", "bloco", "resma", "cola", "post-it", "notas aderentes"],
+      "slug": "transporte_escolar",
+      "include_any": ["mochila", "backpack", "trolley", "estojo", "penal", "porta lapis"],
+      "include_all": [],
+      "exclude_any": ["caderno", "caneta", "lapis", "agrafador", "resma"],
+      "strong_exclude_any": ["auriculares", "telemovel", "tablet", "shampoo", "maquilhagem"],
       "high_risk": true,
-      "auto_min_confidence": 0.64,
-      "auto_min_margin": 0.07
+      "auto_min_confidence": 0.78,
+      "auto_min_margin": 0.11
     },
     {
-      "slug": "afia",
-      "include_any": ["afia", "afiador", "apontador"],
+      "slug": "artes",
+      "include_any": ["tinta", "guache", "aquarela", "acrilica", "pincel", "artistico", "bloco desenho", "cartolina"],
+      "include_all": [],
+      "exclude_any": ["resma", "agrafador", "mochila", "caneta esferografica"],
+      "strong_exclude_any": ["auriculares", "telemovel", "tablet", "shampoo"],
+      "high_risk": true,
+      "auto_min_confidence": 0.77,
+      "auto_min_margin": 0.1
+    },
+    {
+      "slug": "cola_adesivos",
+      "include_any": ["cola", "bastao", "bastão", "liquida", "líquida", "fita", "adesiva", "dupla face", "rollafix"],
+      "include_all": [],
+      "exclude_any": ["agrafador", "agrafos", "mochila", "estojo"],
+      "strong_exclude_any": ["auriculares", "telemovel", "tablet", "shampoo"],
+      "high_risk": false,
+      "auto_min_confidence": 0.76,
+      "auto_min_margin": 0.1
+    },
+    {
+      "slug": "papel",
+      "include_any": ["resma", "papel a4", "papel de impressao", "500 folhas", "80g", "70g", "recarga papel"],
+      "include_all": [],
+      "exclude_any": ["caderno", "bloco notas", "post-it", "agrafador", "mochila"],
+      "strong_exclude_any": ["auriculares", "telemovel", "tablet", "shampoo"],
+      "high_risk": true,
+      "auto_min_confidence": 0.78,
+      "auto_min_margin": 0.11
+    },
+    {
+      "slug": "outros_escolares",
+      "include_any": ["calculadora", "kit escolar", "material escolar", "acessorio escolar", "diverso"],
       "include_all": [],
       "exclude_any": [],
-      "strong_exclude_any": ["agrafos", "agrafador", "classificador", "portefolio", "portfolio", "pasta", "bolsa catalogo", "dossier"],
-      "high_risk": false,
-      "auto_min_confidence": 0.58,
-      "auto_min_margin": 0.05
+      "strong_exclude_any": ["auriculares", "telemovel", "tablet", "shampoo", "maquilhagem", "cuidado pessoal"],
+      "high_risk": true,
+      "auto_min_confidence": 0.86,
+      "auto_min_margin": 0.18
     },
     {
-      "slug": "borracha",
-      "include_any": ["borracha", "eraser"],
+      "slug": "fora_escopo_escolar",
+      "include_any": ["auriculares", "headphones", "telemovel", "tablet", "shampoo", "maquilhagem", "perfume", "cozinha", "casa"],
       "include_all": [],
-      "exclude_any": [],
+      "exclude_any": ["caderno", "caneta", "lapis", "resma", "mochila", "cola"],
       "strong_exclude_any": [],
       "high_risk": false,
-      "auto_min_confidence": 0.58,
-      "auto_min_margin": 0.05
-    },
-    {
-      "slug": "cola-bastao",
-      "include_any": ["cola", "bastao", "bastão", "stick"],
-      "include_all": ["cola", "bastao"],
-      "exclude_any": ["liquida", "líquida", "fita", "rollafix", "corretor", "corretora"],
-      "strong_exclude_any": ["agrafos", "agrafador", "fita adesiva", "dupla face", "durex"],
-      "high_risk": false,
-      "auto_min_confidence": 0.62,
-      "auto_min_margin": 0.06
-    },
-    {
-      "slug": "cola-liquida",
-      "include_any": ["cola", "liquida", "líquida", "branca", "pva", "cola escolar"],
-      "include_all": ["cola"],
-      "exclude_any": ["bastao", "bastão", "stick", "fita", "rollafix", "adesiva", "dupla face", "corretor", "corretora"],
-      "strong_exclude_any": ["agrafos", "agrafador", "fita adesiva", "durex"],
-      "high_risk": false,
-      "auto_min_confidence": 0.62,
-      "auto_min_margin": 0.06
-    },
-    {
-      "slug": "regua",
-      "include_any": ["regua", "régua", "esquadro", "transferidor"],
-      "include_all": [],
-      "exclude_any": [],
-      "strong_exclude_any": ["marcador", "caneta", "lapis de cor"],
-      "high_risk": false,
-      "auto_min_confidence": 0.6,
-      "auto_min_margin": 0.05
-    },
-    {
-      "slug": "tesoura",
-      "include_any": ["tesoura", "scissor"],
-      "include_all": [],
-      "exclude_any": [],
-      "strong_exclude_any": ["agrafos", "agrafador"],
-      "high_risk": false,
-      "auto_min_confidence": 0.6,
-      "auto_min_margin": 0.05
-    },
-    {
-      "slug": "estojo",
-      "include_any": ["estojo", "penal", "porta lapis", "porta lápis", "necessaire", "nécessaire"],
-      "include_all": [],
-      "exclude_any": ["mochila", "backpack"],
-      "strong_exclude_any": [],
-      "high_risk": true,
-      "auto_min_confidence": 0.64,
-      "auto_min_margin": 0.07
-    },
-    {
-      "slug": "mochila",
-      "include_any": ["mochila", "backpack", "trolley"],
-      "include_all": [],
-      "exclude_any": ["estojo", "penal"],
-      "strong_exclude_any": [],
-      "high_risk": true,
-      "auto_min_confidence": 0.64,
-      "auto_min_margin": 0.07
-    },
-    {
-      "slug": "bloco-notas-aderentes",
-      "include_any": ["notas aderentes", "post-it", "post it", "bloco adesivo", "autocolante"],
-      "include_all": [],
-      "exclude_any": ["caderno", "desenho", "resma", "papel a4"],
-      "strong_exclude_any": ["etiquetas"],
-      "high_risk": false,
-      "auto_min_confidence": 0.62,
-      "auto_min_margin": 0.06
-    },
-    {
-      "slug": "bloco-desenho",
-      "include_any": ["bloco de desenho", "papel vegetal", "trabalhos manuais", "croquis", "cartolina", "sketch", "bloco de esboco", "bloco de esboço", "paint on"],
-      "include_all": [],
-      "exclude_any": ["notas aderentes", "post-it", "etiquetas"],
-      "strong_exclude_any": ["resma a4"],
-      "high_risk": true,
-      "auto_min_confidence": 0.64,
-      "auto_min_margin": 0.07
-    },
-    {
-      "slug": "etiquetas-adesivas",
-      "include_any": ["etiquetas", "etiquetas adesivas", "label", "rotulo", "rótulo"],
-      "include_all": ["etiquetas"],
-      "exclude_any": ["caderno", "bloco"],
-      "strong_exclude_any": [],
-      "high_risk": false,
-      "auto_min_confidence": 0.62,
-      "auto_min_margin": 0.06
-    },
-    {
-      "slug": "agrafador",
-      "include_any": ["agrafador", "stapler", "saca agrafos", "alicate"],
-      "include_all": [],
-      "exclude_any": [],
-      "strong_exclude_any": ["caixa de agrafos", "caixa agrafos", "recarga agrafos", "agrafos galvanizados"],
-      "high_risk": false,
-      "auto_min_confidence": 0.6,
-      "auto_min_margin": 0.05
-    },
-    {
-      "slug": "agrafos-24-6",
-      "include_any": ["agrafos", "agrafos 24/6", "24/6", "nº10", "caixa de agrafos"],
-      "include_all": ["agrafos"],
-      "exclude_any": [],
-      "strong_exclude_any": ["agrafador"],
-      "high_risk": false,
-      "auto_min_confidence": 0.6,
-      "auto_min_margin": 0.05
-    },
-    {
-      "slug": "pasta-arquivo",
-      "include_any": ["pasta", "arquivo", "bolsa catalogo", "bolsa catálogo", "dossier", "classificador", "portefolio", "portfólio", "portfolio", "separador", "envelope"],
-      "include_all": [],
-      "exclude_any": ["pasta de modelar"],
-      "strong_exclude_any": ["lapis", "caneta", "borracha", "tesoura", "mochila"],
-      "high_risk": true,
-      "auto_min_confidence": 0.64,
-      "auto_min_margin": 0.07
-    },
-    {
-      "slug": "papel-a4",
-      "include_any": ["resma", "papel de impressao", "papel de impressão", "recarga papel", "500 folhas", "80g", "70g"],
-      "include_all": ["a4"],
-      "exclude_any": ["caderno", "bloco desenho", "cartolina", "autocolante"],
-      "strong_exclude_any": ["agrafador", "tesoura", "afia"],
-      "high_risk": true,
-      "auto_min_confidence": 0.66,
-      "auto_min_margin": 0.07
-    },
-    {
-      "slug": "bloco-apontamentos",
-      "include_any": ["bloco de apontamentos", "bloco pautado", "bloco de notas", "apontamentos"],
-      "include_all": ["bloco"],
-      "exclude_any": ["post-it", "notas aderentes", "desenho", "resma"],
-      "strong_exclude_any": ["caderno espiral", "agrafador", "agrafos"],
-      "high_risk": false,
-      "auto_min_confidence": 0.62,
-      "auto_min_margin": 0.06
-    },
-    {
-      "slug": "calculadora",
-      "include_any": ["calculadora", "casio", "texas ti", "scientific"],
-      "include_all": ["calculadora"],
-      "exclude_any": [],
-      "strong_exclude_any": ["caderno", "lapis", "caneta"],
-      "high_risk": false,
-      "auto_min_confidence": 0.64,
-      "auto_min_margin": 0.06
-    },
-    {
-      "slug": "compasso",
-      "include_any": ["compasso", "compass", "geometria"],
-      "include_all": ["compasso"],
-      "exclude_any": [],
-      "strong_exclude_any": ["caneta", "lapis de cor", "agrafador"],
-      "high_risk": false,
-      "auto_min_confidence": 0.62,
-      "auto_min_margin": 0.06
-    },
-    {
-      "slug": "corretor",
-      "include_any": ["corretor", "fita corretora", "liquid paper", "caneta corretora"],
-      "include_all": ["corretor"],
-      "exclude_any": ["cola", "fita adesiva"],
-      "strong_exclude_any": ["agrafador", "agrafos"],
-      "high_risk": false,
-      "auto_min_confidence": 0.62,
-      "auto_min_margin": 0.06
-    },
-    {
-      "slug": "fita-adesiva",
-      "include_any": ["fita adesiva", "durex", "dupla face", "fita cola", "rollafix"],
-      "include_all": ["fita"],
-      "exclude_any": ["corretora", "corretor"],
-      "strong_exclude_any": ["cola bastao", "cola liquida"],
-      "high_risk": false,
-      "auto_min_confidence": 0.62,
-      "auto_min_margin": 0.06
-    },
-    {
-      "slug": "clips-papel",
-      "include_any": ["clips", "clipes", "molas de papel", "paper clips"],
-      "include_all": [],
-      "exclude_any": [],
-      "strong_exclude_any": ["agrafador", "agrafos"],
-      "high_risk": false,
-      "auto_min_confidence": 0.6,
-      "auto_min_margin": 0.05
-    },
-    {
-      "slug": "pincel-artistico",
-      "include_any": ["pinceis", "pincel", "brush", "oleo", "acrilico"],
-      "include_all": ["pincel"],
-      "exclude_any": [],
-      "strong_exclude_any": ["caneta", "lapis", "agrafador"],
-      "high_risk": false,
-      "auto_min_confidence": 0.62,
-      "auto_min_margin": 0.06
-    },
-    {
-      "slug": "tinta-artistica",
-      "include_any": ["guache", "aquarela", "tinta acrilica", "tinta acrílica", "paint creation"],
-      "include_all": [],
-      "exclude_any": [],
-      "strong_exclude_any": ["caneta", "lapis", "agrafador"],
-      "high_risk": false,
-      "auto_min_confidence": 0.62,
-      "auto_min_margin": 0.06
-    },
-    {
-      "slug": "fora-escopo-escolar",
-      "include_any": ["auriculares", "wireless", "telemovel", "telemóvel", "luzes led", "grinalda", "caixas lanche", "lancheira", "copo", "bolsa para computador"],
-      "include_all": [],
-      "exclude_any": ["caderno", "lapis", "lápis", "caneta", "borracha", "mochila"],
-      "strong_exclude_any": [],
-      "high_risk": true,
       "out_of_scope": true,
-      "auto_min_confidence": 0.72,
-      "auto_min_margin": 0.08
-    },
-    {
-      "slug": "material-escolar-diverso",
-      "include_any": [],
-      "include_all": [],
-      "exclude_any": [],
-      "strong_exclude_any": [],
-      "high_risk": true,
-      "auto_min_confidence": 0.99,
-      "auto_min_margin": 0.5
+      "auto_min_confidence": 0.8,
+      "auto_min_margin": 0.12
     }
   ]
 }

@@ -6,13 +6,14 @@ import type {
   NormalizedCatalogProduct,
   TaxonomyCategory,
 } from "../types.js";
-import { normalizeText, detectFormat, detectRuling, detectPackCount } from "../utils/text.js";
 import { chunk } from "../utils/collections.js";
+import { detectFormat, detectPackCount, detectRuling, normalizeText } from "../utils/text.js";
 import { loadTaxonomy } from "../taxonomy/load.js";
 
 export interface CategoryAssignment {
   sourceSku: string;
   categorySlug: string;
+  categoryTop2Slug: string | null;
   categoryConfidence: number;
   categoryTop2Confidence: number;
   categoryMargin: number;
@@ -50,19 +51,6 @@ interface CandidateScore {
   strongExcluded: boolean;
 }
 
-interface CadernoSubtypeEvidence {
-  format: "A4" | "A5" | null;
-  ruling: "pautado" | "quadriculado" | "liso" | null;
-}
-
-interface InkSignalEvidence {
-  hasGel: boolean;
-  hasEsferografica: boolean;
-  gelDominant: boolean;
-  esferograficaDominant: boolean;
-  ambiguousMixed: boolean;
-}
-
 interface AssignCategoriesInput {
   products: NormalizedCatalogProduct[];
   embeddingProvider: EmbeddingProvider;
@@ -74,9 +62,6 @@ interface AssignCategoriesInput {
   embeddingBatchSize: number;
   embeddingConcurrency: number;
 }
-
-const PACK_CONTEXT_REGEX = /(pack|caixa|conjunto|kit|unid|unidades|pcs|pecas|x\s*\d+)/;
-const SHEET_CONTEXT_REGEX = /(folhas|fls|resma|caderno|bloco|recarga)/;
 
 function dot(a: number[], b: number[]): number {
   let sum = 0;
@@ -106,6 +91,13 @@ function cosineSimilarity(a: number[], b: number[]): number {
 function normalizeSimilarity(similarity: number): number {
   const normalized = (similarity + 1) / 2;
   return Math.max(0, Math.min(1, normalized));
+}
+
+function clampScore(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, value));
 }
 
 function escapeRegex(value: string): string {
@@ -153,6 +145,11 @@ function estimateAttributeCompatibility(product: NormalizedCatalogProduct, categ
 
   for (const attribute of category.default_attributes) {
     switch (attribute.key) {
+      case "item_subtype": {
+        const subtypeMatch = (attribute.allowed_values ?? []).some((value) => hasTerm(text, value));
+        matched += subtypeMatch ? 1 : 0;
+        break;
+      }
       case "format":
         matched += detectFormat(text) ? 1 : 0;
         break;
@@ -165,11 +162,11 @@ function estimateAttributeCompatibility(product: NormalizedCatalogProduct, categ
       case "pack_count":
         matched += detectPackCount(text) !== null ? 1 : 0;
         break;
-      case "hardness":
-        matched += /\b(hb|2b|b|h)\b/.test(text) ? 1 : 0;
-        break;
       case "ink_type":
         matched += /(gel|esferografica|esferografico|roller)/.test(text) ? 1 : 0;
+        break;
+      case "hardness":
+        matched += /\b(hb|2b|b|h)\b/.test(text) ? 1 : 0;
         break;
       case "point_size_mm":
         matched += /\b\d(?:[.,]\d)?\s*mm\b/.test(text) ? 1 : 0;
@@ -177,17 +174,41 @@ function estimateAttributeCompatibility(product: NormalizedCatalogProduct, categ
       case "glue_type":
         matched += /(cola\s+bastao|cola\s+liquida|cola\s+líquida|stick)/.test(text) ? 1 : 0;
         break;
+      case "tape_type":
+        matched += /(fita|dupla face|washi|masking)/.test(text) ? 1 : 0;
+        break;
       case "volume_ml":
         matched += /\b\d{1,4}\s*ml\b/.test(text) ? 1 : 0;
         break;
       case "length_cm":
         matched += /\b\d{1,3}(?:[.,]\d+)?\s*cm\b/.test(text) ? 1 : 0;
         break;
+      case "tip_safety":
+        matched += /(ponta redonda|seguranca|segurança)/.test(text) ? 1 : 0;
+        break;
+      case "has_wheels":
+        matched += /(rodas|com rodas|sem rodas|trolley)/.test(text) ? 1 : 0;
+        break;
       case "capacity_l":
         matched += /\b\d{1,2}(?:[.,]\d+)?\s*(l|litros?)\b/.test(text) ? 1 : 0;
         break;
-      case "has_wheels":
-        matched += /(rodas|com rodas|sem rodas)/.test(text) ? 1 : 0;
+      case "compartment_count":
+        matched += /\b(duplo|triplo|\d\s*compartimentos?)\b/.test(text) ? 1 : 0;
+        break;
+      case "paint_type":
+        matched += /(guache|aquarela|acrilica|acrílica|tempera|têmpera)/.test(text) ? 1 : 0;
+        break;
+      case "brush_type":
+        matched += /(pincel\s*chato|pincel\s*redondo|esponja)/.test(text) ? 1 : 0;
+        break;
+      case "weight_gsm":
+        matched += /\b\d{2,3}\s*(g\/m2|g\/m²|g)\b/.test(text) ? 1 : 0;
+        break;
+      case "target_age":
+        matched += /(infantil|juvenil|kids|teen)/.test(text) ? 1 : 0;
+        break;
+      case "color_set":
+        matched += /(\d+\s*cores|colorido|multicor)/.test(text) ? 1 : 0;
         break;
       default:
         matched += 0;
@@ -202,165 +223,61 @@ function detectCategoryContradictions(categorySlug: string, product: NormalizedC
   const text = `${product.normalizedTitle} ${product.normalizedDescription}`;
   let contradictions = 0;
 
-  if (categorySlug === "lapis-cor" && /(afia|afiador|agrafador|agrafos|post-it|notas aderentes|etiquetas|resma|bloco)/.test(text)) {
+  if (
+    categorySlug === "cadernos_blocos" &&
+    /(agrafador|agrafos|etiquetas|mochila|tesoura|regua|fita adesiva)/.test(text) &&
+    !/(caderno|bloco|flashcards|recarga)/.test(text)
+  ) {
     contradictions += 1;
   }
 
-  if (categorySlug.startsWith("caderno-") && /(agrafador|agrafos|etiquetas|afia|resma)/.test(text)) {
+  if (
+    categorySlug === "escrita" &&
+    /(pasta arquivo|classificador|resma|mochila|estojo|tesoura)/.test(text) &&
+    !/(caneta|lapis|lápis|marcador|borracha|afiador|corretor)/.test(text)
+  ) {
     contradictions += 1;
   }
 
-  if (categorySlug.startsWith("caneta") && /(lapis|lápis|afia|agrafador|agrafos)/.test(text)) {
+  if (
+    categorySlug === "organizacao_arquivo" &&
+    /(lapis de cor|caneta gel|tesoura escolar|mochila)/.test(text) &&
+    !/(pasta|arquivo|etiquet|agrafador|agrafos|clips|post-it|aderente)/.test(text)
+  ) {
     contradictions += 1;
   }
 
-  if (categorySlug === "papel-a4" && /(caderno\s+espiral|brochura)/.test(text)) {
+  if (
+    categorySlug === "geometria_corte" &&
+    /(caneta|lapis|cola|mochila|resma)/.test(text) &&
+    !/(regua|régua|esquadro|transferidor|tesoura|compasso)/.test(text)
+  ) {
     contradictions += 1;
   }
 
-  if (categorySlug === "bloco-notas-aderentes" && !/(aderente|post-it|notas)/.test(text)) {
+  if (
+    categorySlug === "transporte_escolar" &&
+    !/(mochila|backpack|trolley|estojo|penal|porta lapis|porta lápis)/.test(text)
+  ) {
     contradictions += 1;
   }
 
-  if ((categorySlug === "cola-bastao" || categorySlug === "cola-liquida") && !/cola/.test(text)) {
+  if (
+    categorySlug === "cola_adesivos" &&
+    !/(cola|bastao|bastão|liquida|líquida|fita|adesiva|dupla face|rollafix)/.test(text)
+  ) {
     contradictions += 1;
   }
 
-  if ((categorySlug === "cola-bastao" || categorySlug === "cola-liquida") && /(fita|adesiva|dupla face|rollafix|corretora)/.test(text)) {
-    contradictions += 1;
-  }
-
-  if (categorySlug === "cola-bastao" && /(liquida|branca)/.test(text)) {
-    contradictions += 1;
-  }
-
-  if (categorySlug === "cola-liquida" && /(bastao|stick)/.test(text)) {
-    contradictions += 1;
-  }
-
-  if (!PACK_CONTEXT_REGEX.test(text) && SHEET_CONTEXT_REGEX.test(text) && detectPackCount(text) !== null) {
+  if (
+    categorySlug === "papel" &&
+    /(caneta|lapis|lápis|agrafador|mochila|estojo)/.test(text) &&
+    !/(resma|papel|folhas|gramagem|g\/m2|g\/m²)/.test(text)
+  ) {
     contradictions += 1;
   }
 
   return contradictions;
-}
-
-function inferCadernoSubtypeEvidence(text: string): CadernoSubtypeEvidence {
-  const format = detectFormat(text);
-  const ruling = detectRuling(text);
-
-  return {
-    format: format === "A4" || format === "A5" ? format : null,
-    ruling:
-      ruling === "pautado" || ruling === "quadriculado" || ruling === "liso"
-        ? ruling
-        : null,
-  };
-}
-
-function expectedCadernoSubtype(categorySlug: string): CadernoSubtypeEvidence {
-  const normalizedSlug = normalizeText(categorySlug);
-  const format = normalizedSlug.includes("a4") ? "A4" : normalizedSlug.includes("a5") ? "A5" : null;
-  let ruling: "pautado" | "quadriculado" | "liso" | null = null;
-
-  if (normalizedSlug.includes("pautado")) {
-    ruling = "pautado";
-  } else if (normalizedSlug.includes("quadriculado")) {
-    ruling = "quadriculado";
-  } else if (normalizedSlug.includes("liso")) {
-    ruling = "liso";
-  }
-
-  return {
-    format,
-    ruling,
-  };
-}
-
-function isCadernoSubtypeLocked(categorySlug: string, evidence: CadernoSubtypeEvidence): boolean {
-  if (!categorySlug.startsWith("caderno-")) {
-    return false;
-  }
-
-  const expected = expectedCadernoSubtype(categorySlug);
-  let hasSignal = false;
-
-  if (evidence.format) {
-    hasSignal = true;
-    if (expected.format && expected.format !== evidence.format) {
-      return false;
-    }
-  }
-
-  if (evidence.ruling) {
-    hasSignal = true;
-    if (expected.ruling && expected.ruling !== evidence.ruling) {
-      return false;
-    }
-  }
-
-  return hasSignal;
-}
-
-function inferInkSignalEvidence(text: string): InkSignalEvidence {
-  const hasGel = /\bgel\b|gel pen|tinta gel|sarasa/.test(text);
-  const hasEsferografica =
-    /esferografica|esferografico|esferográfica|esferográfico|ballpoint|bic|cristal/.test(
-      text,
-    );
-
-  const gelDominant =
-    hasGel &&
-    (/\bgel pen\b|tinta gel|sarasa|neon gel|gel color/.test(text) ||
-      (!hasEsferografica && /\bgel\b/.test(text)));
-  const esferograficaDominant =
-    hasEsferografica &&
-    (/ballpoint|bic|cristal|oleosa|retratil|esferografica/.test(text) || !hasGel);
-
-  return {
-    hasGel,
-    hasEsferografica,
-    gelDominant,
-    esferograficaDominant,
-    ambiguousMixed: hasGel && hasEsferografica && !gelDominant && !esferograficaDominant,
-  };
-}
-
-function pickFallbackRescueCandidate(ranked: CandidateScore[]): CandidateScore | null {
-  const top1 = ranked[0];
-  if (!top1 || !top1.category.is_fallback) {
-    return null;
-  }
-
-  for (const candidate of ranked) {
-    if (candidate.category.is_fallback) {
-      continue;
-    }
-
-    const hasStrongLexicalEvidence =
-      candidate.includeHits >= 2 || (candidate.includeHits >= 1 && candidate.lexical >= 0.6);
-    const hasStrongSemanticEvidence = candidate.semantic >= 0.74 && candidate.compatibility >= 0.3;
-    const rescueScoreFloor = hasStrongLexicalEvidence ? 0.34 : 0.24;
-    if (
-      (hasStrongLexicalEvidence || hasStrongSemanticEvidence) &&
-      (candidate.lexicalEligible || hasStrongSemanticEvidence) &&
-      candidate.contradictionCount === 0 &&
-      candidate.excludeHits === 0 &&
-      !candidate.strongExcluded &&
-      candidate.score >= rescueScoreFloor
-    ) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
-function clampScore(value: number): number {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  return Math.max(0, Math.min(1, value));
 }
 
 function buildConfidenceHistogram(assignments: Iterable<CategoryAssignment>): Record<string, number> {
@@ -506,7 +423,6 @@ function applyLlmChoice(
   }
 
   const chosen = ranked[chosenIndex];
-  // LLM is a tie-breaker only; keep confidence grounded in lexical/semantic evidence.
   const boostedScore = clampScore(chosen.score + Math.min(0.04, Math.max(0, llmOutput.confidence - 0.5) * 0.08));
   const updatedChosen: CandidateScore = {
     ...chosen,
@@ -515,6 +431,35 @@ function applyLlmChoice(
 
   const rest = ranked.filter((_, index) => index !== chosenIndex);
   return [updatedChosen, ...rest].sort((left, right) => right.score - left.score);
+}
+
+function pickFallbackRescueCandidate(ranked: CandidateScore[]): CandidateScore | null {
+  const top1 = ranked[0];
+  if (!top1 || !top1.category.is_fallback) {
+    return null;
+  }
+
+  for (const candidate of ranked) {
+    if (candidate.category.is_fallback) {
+      continue;
+    }
+
+    const hasStrongLexicalEvidence =
+      candidate.includeHits >= 2 || (candidate.includeHits >= 1 && candidate.lexical >= 0.6);
+    const hasStrongSemanticEvidence = candidate.semantic >= 0.74 && candidate.compatibility >= 0.3;
+    if (
+      (hasStrongLexicalEvidence || hasStrongSemanticEvidence) &&
+      candidate.lexicalEligible &&
+      candidate.contradictionCount === 0 &&
+      candidate.excludeHits === 0 &&
+      !candidate.strongExcluded &&
+      candidate.score >= 0.32
+    ) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 export async function assignCategoriesForProducts(
@@ -544,8 +489,6 @@ export async function assignCategoriesForProducts(
       llmLimiter(async () => {
         const productVector = productVectors[index];
         const normalizedText = `${product.normalizedTitle} ${product.normalizedDescription} ${product.normalizedBrand}`;
-        const cadernoEvidence = inferCadernoSubtypeEvidence(normalizedText);
-        const inkSignals = inferInkSignalEvidence(normalizedText);
         const candidateScores: CandidateScore[] = [];
 
         for (const category of taxonomy.categories) {
@@ -560,73 +503,38 @@ export async function assignCategoriesForProducts(
           const includeAllMisses = includeAllTerms.filter((term) => !hasTerm(normalizedText, term)).length;
           const excludeHits = excludeTerms.filter((term) => hasTerm(normalizedText, term)).length;
           const strongExcludeHits = strongExcludeTerms.filter((term) => hasTerm(normalizedText, term)).length;
+
           const includeAnySatisfied = includeTerms.length === 0 || includeHits > 0;
           const includeAllSatisfied = includeAllTerms.length === 0 || includeAllMisses === 0;
           const lexicalEligible = includeAnySatisfied && includeAllSatisfied;
 
-          const lexicalBase = includeTerms.length === 0 ? 0.35 : Math.min(1, includeHits / 2);
-          let lexicalScore = clampScore(lexicalBase);
-          if (includeAllTerms.length > 0 && includeAllMisses > 0) {
+          const lexicalDenominator = includeTerms.length === 0 ? 2 : Math.max(2, Math.ceil(includeTerms.length / 2));
+          let lexicalScore = includeTerms.length === 0 ? 0.35 : Math.min(1, includeHits / lexicalDenominator);
+
+          if (!includeAnySatisfied) {
             lexicalScore *= 0.45;
           }
+          if (!includeAllSatisfied) {
+            lexicalScore *= 0.45;
+          }
+          lexicalScore = clampScore(lexicalScore - Math.min(0.3, excludeHits * 0.08));
 
           const categoryVector = categoryVectorBySlug.get(category.slug);
           const semanticRaw = categoryVector ? cosineSimilarity(productVector, categoryVector) : 0;
           const semanticScore = normalizeSimilarity(semanticRaw);
           const compatibilityScore = estimateAttributeCompatibility(product, category);
-          let contradictionCount = detectCategoryContradictions(category.slug, product);
+          const contradictionCount = detectCategoryContradictions(category.slug, product);
 
           const strongExcluded = strongExcludeHits > 0;
-          if (category.is_fallback) {
-            lexicalScore = 0.05;
-          }
-
-          let score = 0.5 * lexicalScore + 0.3 * semanticScore + 0.2 * compatibilityScore;
-
-          if (category.slug.startsWith("caderno-")) {
-            const expected = expectedCadernoSubtype(category.slug);
-            let subtypeMismatch = false;
-            let subtypeMatch = false;
-
-            if (cadernoEvidence.format && expected.format) {
-              if (cadernoEvidence.format === expected.format) {
-                subtypeMatch = true;
-              } else {
-                subtypeMismatch = true;
-              }
-            }
-
-            if (cadernoEvidence.ruling && expected.ruling) {
-              if (cadernoEvidence.ruling === expected.ruling) {
-                subtypeMatch = true;
-              } else {
-                subtypeMismatch = true;
-              }
-            }
-
-            if (subtypeMatch) {
-              score += 0.16;
-            }
-            if (subtypeMismatch) {
-              contradictionCount += 1;
-              score -= 0.22;
-            }
-          }
-
-          if (category.slug === "caneta-gel" && inkSignals.gelDominant) {
-            score += 0.1;
-          }
-          if (category.slug === "caneta-esferografica" && inkSignals.esferograficaDominant) {
-            score += 0.1;
-          }
-          if (includeAllSatisfied && includeHits >= 2) {
-            score += 0.08;
-          }
-          if (includeAnySatisfied && includeAllSatisfied && excludeHits === 0 && contradictionCount === 0) {
-            score += 0.05;
-          }
-          score -= Math.min(0.25, excludeHits * 0.12);
+          let score = 0.45 * lexicalScore + 0.35 * semanticScore + 0.2 * compatibilityScore;
           score -= contradictionCount * 0.18;
+          score -= Math.min(0.24, excludeHits * 0.12);
+
+          if (category.is_fallback) {
+            score = Math.max(score * 0.35, 0.12 + semanticScore * 0.08);
+            lexicalScore = Math.min(lexicalScore, 0.06);
+          }
+
           if (strongExcluded) {
             score = 0;
           }
@@ -712,9 +620,6 @@ export async function assignCategoriesForProducts(
         const top2 = reRankedTop[1] ?? null;
         const margin = clampScore(top1.score - (top2?.score ?? 0));
         const fallbackRescueApplied = Boolean(rescuedCandidate);
-        const mixedInkSignals =
-          inkSignals.ambiguousMixed &&
-          (top1.category.slug.startsWith("caneta-") || top2?.category.slug.startsWith("caneta-") === true);
 
         const rule = taxonomy.rulesBySlug.get(top1.category.slug);
         const thresholds = resolveCategoryThresholds({
@@ -723,17 +628,12 @@ export async function assignCategoriesForProducts(
           autoMinMargin: input.autoMinMargin,
           highRiskExtraConfidence: input.highRiskExtraConfidence,
         });
+
         const requiredConfidence = thresholds.requiredConfidence;
         const requiredMargin = thresholds.requiredMargin;
-        const cadernoSubtypeLock = isCadernoSubtypeLocked(top1.category.slug, cadernoEvidence);
         const isOutOfScopeCategory = Boolean(rule?.out_of_scope);
 
-        const isGenericCategory =
-          top1.category.is_fallback ||
-          /geral|diverso/.test(top1.category.slug) ||
-          /geral|diverso/.test(normalizeText(top1.category.name_pt));
-
-        const confidenceReasons: string[] = [];
+        const confidenceReasons: string[] = ["family_assignment"];
         if (top1.lexical >= 0.6) {
           confidenceReasons.push("strong_lexical_match");
         }
@@ -750,18 +650,10 @@ export async function assignCategoriesForProducts(
           confidenceReasons.push("below_auto_confidence");
         }
         if (margin < requiredMargin) {
-          if (!cadernoSubtypeLock) {
-            confidenceReasons.push("low_margin");
-          }
+          confidenceReasons.push("low_margin");
         }
-        if (isGenericCategory) {
+        if (top1.category.is_fallback) {
           confidenceReasons.push("generic_or_fallback_category");
-        }
-        if (cadernoSubtypeLock) {
-          confidenceReasons.push("caderno_subtype_lock");
-        }
-        if (mixedInkSignals) {
-          confidenceReasons.push("mixed_ink_signals");
         }
         if (isOutOfScopeCategory) {
           confidenceReasons.push("out_of_scope_category");
@@ -773,20 +665,35 @@ export async function assignCategoriesForProducts(
           confidenceReasons.push(llmReason);
         }
 
-        const autoDecision: "auto" | "review" =
+        let autoDecision: "auto" | "review" =
           top1.score >= requiredConfidence &&
-          (margin >= requiredMargin || cadernoSubtypeLock) &&
+          margin >= requiredMargin &&
           top1.contradictionCount === 0 &&
-          !mixedInkSignals &&
-          !isGenericCategory &&
           !isOutOfScopeCategory &&
           !fallbackRescueApplied
             ? "auto"
             : "review";
 
+        if (top1.category.slug === "outros_escolares") {
+          const strictConfidence = Math.max(requiredConfidence, 0.86);
+          const strictMargin = Math.max(requiredMargin, 0.18);
+          autoDecision =
+            top1.score >= strictConfidence &&
+            margin >= strictMargin &&
+            top1.contradictionCount === 0 &&
+            !fallbackRescueApplied
+              ? "auto"
+              : "review";
+        }
+
+        if (top1.category.slug === "fora_escopo_escolar") {
+          autoDecision = "review";
+        }
+
         const assignment: CategoryAssignment = {
           sourceSku: product.sourceSku,
           categorySlug: top1.category.slug,
+          categoryTop2Slug: top2?.category.slug ?? null,
           categoryConfidence: top1.score,
           categoryTop2Confidence: top2?.score ?? 0,
           categoryMargin: margin,

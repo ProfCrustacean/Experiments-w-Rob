@@ -9,10 +9,10 @@ import type { RunArtifactFormat } from "../types.js";
 import { parseArgs, requireArg } from "../utils/cli.js";
 
 function parseFormat(value: string): RunArtifactFormat {
-  if (value === "xlsx" || value === "csv" || value === "qa-csv") {
+  if (value === "xlsx" || value === "csv" || value === "qa-csv" || value === "confusion-csv") {
     return value;
   }
-  throw new Error("Invalid --format value. Use xlsx, csv, or qa-csv.");
+  throw new Error("Invalid --format value. Use xlsx, csv, qa-csv, or confusion-csv.");
 }
 
 async function main(): Promise<void> {

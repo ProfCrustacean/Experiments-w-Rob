@@ -17,12 +17,21 @@ interface MatchRulesFile {
   categories: TaxonomyCategoryMatchRule[];
 }
 
+interface LegacySplitFile {
+  schema_version: string;
+  legacy_to_family: Record<string, string>;
+}
+
 export interface LoadedTaxonomy {
   categoriesVersion: string;
   matchRulesVersion: string;
+  legacySplitVersion: string;
+  taxonomyVersion: string;
   categories: TaxonomyCategory[];
   rulesBySlug: Map<string, TaxonomyCategoryMatchRule>;
   categoriesBySlug: Map<string, TaxonomyCategory>;
+  legacyToFamily: Record<string, string>;
+  legacyByFamily: Map<string, string[]>;
   fallbackCategory: TaxonomyCategory;
   attributePolicies: TaxonomyAttributePolicyConfig;
 }
@@ -46,6 +55,7 @@ export function loadTaxonomy(): LoadedTaxonomy {
   const categoriesFile = readJsonFile<CategoriesFile>("categories.pt.json");
   const matchRulesFile = readJsonFile<MatchRulesFile>("category_match_rules.pt.json");
   const attributePolicies = readJsonFile<TaxonomyAttributePolicyConfig>("attribute_policies.pt.json");
+  const legacySplitFile = readJsonFile<LegacySplitFile>("legacy_split_to_family.pt.json");
 
   if (!Array.isArray(categoriesFile.categories) || categoriesFile.categories.length === 0) {
     throw new Error("Taxonomy categories file is empty.");
@@ -69,18 +79,31 @@ export function loadTaxonomy(): LoadedTaxonomy {
 
   const fallbackCategory =
     categoriesFile.categories.find((category) => category.is_fallback) ??
-    categoriesFile.categories.find((category) => category.slug === "material-escolar-diverso");
+    categoriesFile.categories.find((category) => category.slug === "outros_escolares");
 
   if (!fallbackCategory) {
     throw new Error("Taxonomy is missing a fallback category.");
   }
 
+  const legacyByFamily = new Map<string, string[]>();
+  for (const [legacySlug, familySlug] of Object.entries(legacySplitFile.legacy_to_family ?? {})) {
+    const list = legacyByFamily.get(familySlug) ?? [];
+    list.push(legacySlug);
+    legacyByFamily.set(familySlug, list);
+  }
+
+  const taxonomyVersion = `${categoriesFile.schema_version}|${matchRulesFile.schema_version}`;
+
   cachedTaxonomy = {
     categoriesVersion: categoriesFile.schema_version,
     matchRulesVersion: matchRulesFile.schema_version,
+    legacySplitVersion: legacySplitFile.schema_version,
+    taxonomyVersion,
     categories: categoriesFile.categories,
     rulesBySlug,
     categoriesBySlug,
+    legacyToFamily: legacySplitFile.legacy_to_family ?? {},
+    legacyByFamily,
     fallbackCategory,
     attributePolicies,
   };

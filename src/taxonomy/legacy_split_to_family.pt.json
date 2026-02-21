@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "legacy_to_family": {
+    "caderno-a4-pautado": "cadernos_blocos",
+    "caderno-a4-quadriculado": "cadernos_blocos",
+    "caderno-a5-pautado": "cadernos_blocos",
+    "caderno-a5-quadriculado": "cadernos_blocos",
+    "caderno-a5-liso": "cadernos_blocos",
+    "bloco-apontamentos": "cadernos_blocos",
+    "bloco-desenho": "cadernos_blocos",
+
+    "caneta-esferografica": "escrita",
+    "caneta-gel": "escrita",
+    "marcador-texto": "escrita",
+    "lapis-hb": "escrita",
+    "lapis-cor": "escrita",
+    "borracha": "escrita",
+    "afia": "escrita",
+    "corretor": "escrita",
+
+    "pasta-arquivo": "organizacao_arquivo",
+    "etiquetas-adesivas": "organizacao_arquivo",
+    "agrafador": "organizacao_arquivo",
+    "agrafos-24-6": "organizacao_arquivo",
+    "clips-papel": "organizacao_arquivo",
+    "bloco-notas-aderentes": "organizacao_arquivo",
+
+    "regua": "geometria_corte",
+    "tesoura": "geometria_corte",
+    "compasso": "geometria_corte",
+    "esquadro-transferidor": "geometria_corte",
+
+    "mochila": "transporte_escolar",
+    "estojo": "transporte_escolar",
+
+    "tinta-artistica": "artes",
+    "pincel-artistico": "artes",
+
+    "cola-bastao": "cola_adesivos",
+    "cola-liquida": "cola_adesivos",
+    "fita-adesiva": "cola_adesivos",
+
+    "papel-a4": "papel",
+
+    "calculadora": "outros_escolares",
+    "material-escolar-diverso": "outros_escolares",
+
+    "fora-escopo-escolar": "fora_escopo_escolar"
+  }
+}

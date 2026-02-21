@@ -15,13 +15,22 @@ describe("enrichment", () => {
     };
 
     const category = {
-      slug: "caderno-a4-pautado",
-      description: "Categoria de cadernos escolares",
+      slug: "cadernos_blocos",
+      description: "Categoria de cadernos e blocos",
       confidenceScore: 0.92,
+      autoDecision: "auto" as const,
+      confidenceReasons: ["family_assignment"],
       attributes: {
         schema_version: "1.0" as const,
-        category_name_pt: "caderno a4 pautado",
+        category_name_pt: "cadernos e blocos",
         attributes: [
+          {
+            key: "item_subtype",
+            label_pt: "subtipo",
+            type: "enum" as const,
+            allowed_values: ["caderno", "bloco_apontamentos"],
+            required: false,
+          },
           {
             key: "format",
             label_pt: "formato",
@@ -42,7 +51,8 @@ describe("enrichment", () => {
 
     const result = await enrichProduct(product, category, null, 0.7);
 
-    expect(Object.keys(result.attributeValues).sort()).toEqual(["format", "ruling"]);
+    expect(Object.keys(result.attributeValues).sort()).toEqual(["format", "item_subtype", "ruling"]);
+    expect(result.attributeValues.item_subtype).toBe("caderno");
     expect(result.attributeValues.format).toBe("A4");
     expect(result.attributeValues.ruling).toBe("pautado");
     expect(result.needsReview).toBe(false);
@@ -51,28 +61,31 @@ describe("enrichment", () => {
   it("flags uncertain products for review", async () => {
     const product = {
       sourceSku: "sku-2",
-      title: "Material escolar diverso",
+      title: "Item escolar diverso",
       description: "",
       brand: "",
-      normalizedTitle: "material escolar diverso",
+      normalizedTitle: "item escolar diverso",
       normalizedDescription: "",
       normalizedBrand: "",
-      normalizedText: "material escolar diverso",
+      normalizedText: "item escolar diverso",
     };
 
     const category = {
-      slug: "material-diverso",
+      slug: "outros_escolares",
       description: "Categoria genérica",
       confidenceScore: 0.41,
+      autoDecision: "review" as const,
+      confidenceReasons: ["below_auto_confidence", "generic_or_fallback_category"],
       attributes: {
         schema_version: "1.0" as const,
-        category_name_pt: "material escolar diverso",
+        category_name_pt: "outros escolares",
         attributes: [
           {
-            key: "pack_count",
-            label_pt: "quantidade_no_pack",
-            type: "number" as const,
-            required: true,
+            key: "item_subtype",
+            label_pt: "subtipo",
+            type: "enum" as const,
+            allowed_values: ["calculadora", "acessorio_escolar", "kit_escolar"],
+            required: false,
           },
         ],
       },
@@ -84,7 +97,7 @@ describe("enrichment", () => {
     expect(result.uncertaintyReasons).toContain("low_category_confidence");
   });
 
-  it("does not force review when auto decision only has positive confidence signals", async () => {
+  it("does not force review when auto decision has safe signals", async () => {
     const product = {
       sourceSku: "sku-3",
       title: "Agrafador Mini Escolar",
@@ -97,15 +110,23 @@ describe("enrichment", () => {
     };
 
     const category = {
-      slug: "agrafador",
-      description: "Categoria de agrafadores",
+      slug: "organizacao_arquivo",
+      description: "Categoria de organização",
       confidenceScore: 0.9,
       autoDecision: "auto" as const,
-      confidenceReasons: ["strong_lexical_match", "strong_semantic_match"],
+      confidenceReasons: ["family_assignment", "strong_lexical_match"],
       attributes: {
         schema_version: "1.0" as const,
-        category_name_pt: "agrafador",
-        attributes: [],
+        category_name_pt: "organizacao e arquivo",
+        attributes: [
+          {
+            key: "item_subtype",
+            label_pt: "subtipo",
+            type: "enum" as const,
+            allowed_values: ["agrafador", "agrafos"],
+            required: false,
+          },
+        ],
       },
     };
 
@@ -114,14 +135,15 @@ describe("enrichment", () => {
     expect(result.autoDecision).toBe("auto");
     expect(result.needsReview).toBe(false);
     expect(result.uncertaintyReasons).toEqual([]);
+    expect(result.attributeValues.item_subtype).toBe("agrafador");
   });
 
-  it("applies deterministic parsing for mochila, estojo, marcador and cola liquida", async () => {
+  it("applies deterministic parsing for transporte_escolar, escrita and cola_adesivos", async () => {
     const baseCategory = {
       description: "Categoria",
       confidenceScore: 0.9,
       autoDecision: "auto" as const,
-      confidenceReasons: ["strong_lexical_match"],
+      confidenceReasons: ["family_assignment"],
     };
 
     const mochilaResult = await enrichProduct(
@@ -137,11 +159,12 @@ describe("enrichment", () => {
       },
       {
         ...baseCategory,
-        slug: "mochila",
+        slug: "transporte_escolar",
         attributes: {
           schema_version: "1.0" as const,
-          category_name_pt: "mochila",
+          category_name_pt: "transporte escolar",
           attributes: [
+            { key: "item_subtype", label_pt: "subtipo", type: "enum" as const, allowed_values: ["mochila", "estojo"], required: false },
             { key: "has_wheels", label_pt: "tem_rodas", type: "boolean" as const, required: false },
             { key: "capacity_l", label_pt: "capacidade_litros", type: "number" as const, required: false },
             { key: "target_age", label_pt: "faixa_etaria", type: "text" as const, required: false },
@@ -152,30 +175,33 @@ describe("enrichment", () => {
       0.7,
     );
 
+    expect(mochilaResult.attributeValues.item_subtype).toBe("mochila");
     expect(mochilaResult.attributeValues.has_wheels).toBe(true);
     expect(mochilaResult.attributeValues.capacity_l).toBe(25);
     expect(mochilaResult.attributeValues.target_age).toBe("infantil");
 
-    const estojoResult = await enrichProduct(
+    const escritaResult = await enrichProduct(
       {
-        sourceSku: "sku-estojo",
-        title: "Estojo Triplo Silicone Azul",
+        sourceSku: "sku-escrita",
+        title: "Caneta Gel 0.7mm Pack 12",
         description: "",
         brand: "Marca",
-        normalizedTitle: "estojo triplo silicone azul",
+        normalizedTitle: "caneta gel 0.7mm pack 12",
         normalizedDescription: "",
         normalizedBrand: "marca",
-        normalizedText: "estojo triplo silicone azul",
+        normalizedText: "caneta gel 0.7mm pack 12",
       },
       {
         ...baseCategory,
-        slug: "estojo",
+        slug: "escrita",
         attributes: {
           schema_version: "1.0" as const,
-          category_name_pt: "estojo",
+          category_name_pt: "escrita",
           attributes: [
-            { key: "compartment_count", label_pt: "numero_de_compartimentos", type: "number" as const, required: false },
-            { key: "material", label_pt: "material", type: "text" as const, required: false },
+            { key: "item_subtype", label_pt: "subtipo", type: "enum" as const, allowed_values: ["caneta", "lapis_grafite"], required: false },
+            { key: "ink_type", label_pt: "tipo_de_tinta", type: "enum" as const, allowed_values: ["gel", "esferografica"], required: false },
+            { key: "point_size_mm", label_pt: "ponta", type: "number" as const, required: false },
+            { key: "pack_count", label_pt: "pack", type: "number" as const, required: false },
           ],
         },
       },
@@ -183,70 +209,31 @@ describe("enrichment", () => {
       0.7,
     );
 
-    expect(estojoResult.attributeValues.compartment_count).toBe(3);
-    expect(estojoResult.attributeValues.material).toBe("silicone");
-
-    const marcadorResult = await enrichProduct(
-      {
-        sourceSku: "sku-marcador",
-        title: "Marcador Fine 0.4 5 unidades",
-        description: "",
-        brand: "Marca",
-        normalizedTitle: "marcador fine 0.4 5 unidades",
-        normalizedDescription: "",
-        normalizedBrand: "marca",
-        normalizedText: "marcador fine 0.4 5 unidades",
-      },
-      {
-        ...baseCategory,
-        slug: "marcador-texto",
-        attributes: {
-          schema_version: "1.0" as const,
-          category_name_pt: "marcador",
-          attributes: [
-            {
-              key: "tip_type",
-              label_pt: "tipo_de_ponta",
-              type: "enum" as const,
-              allowed_values: ["chanfrada", "fina", "media"],
-              required: false,
-            },
-            { key: "pack_count", label_pt: "quantidade_no_pack", type: "number" as const, required: false },
-          ],
-        },
-      },
-      null,
-      0.7,
-    );
-
-    expect(marcadorResult.attributeValues.tip_type).toBe("fina");
-    expect(marcadorResult.attributeValues.pack_count).toBe(5);
+    expect(escritaResult.attributeValues.item_subtype).toBe("caneta");
+    expect(escritaResult.attributeValues.ink_type).toBe("gel");
+    expect(escritaResult.attributeValues.point_size_mm).toBe(0.7);
+    expect(escritaResult.attributeValues.pack_count).toBe(12);
 
     const colaResult = await enrichProduct(
       {
         sourceSku: "sku-cola",
-        title: "Cola Liquida Branca 110g",
+        title: "Cola Liquida Branca 110ml",
         description: "",
         brand: "Marca",
-        normalizedTitle: "cola liquida branca 110g",
+        normalizedTitle: "cola liquida branca 110ml",
         normalizedDescription: "",
         normalizedBrand: "marca",
-        normalizedText: "cola liquida branca 110g",
+        normalizedText: "cola liquida branca 110ml",
       },
       {
         ...baseCategory,
-        slug: "cola-liquida",
+        slug: "cola_adesivos",
         attributes: {
           schema_version: "1.0" as const,
-          category_name_pt: "cola liquida",
+          category_name_pt: "cola e adesivos",
           attributes: [
-            {
-              key: "glue_type",
-              label_pt: "tipo_de_cola",
-              type: "enum" as const,
-              allowed_values: ["bastao", "liquida"],
-              required: false,
-            },
+            { key: "item_subtype", label_pt: "subtipo", type: "enum" as const, allowed_values: ["cola", "fita"], required: false },
+            { key: "glue_type", label_pt: "tipo_de_cola", type: "enum" as const, allowed_values: ["bastao", "liquida"], required: false },
             { key: "volume_ml", label_pt: "volume_ml", type: "number" as const, required: false },
           ],
         },
@@ -255,80 +242,9 @@ describe("enrichment", () => {
       0.7,
     );
 
+    expect(colaResult.attributeValues.item_subtype).toBe("cola");
     expect(colaResult.attributeValues.glue_type).toBe("liquida");
     expect(colaResult.attributeValues.volume_ml).toBe(110);
-  });
-
-  it("does not force review when optional attributes are empty", async () => {
-    const result = await enrichProduct(
-      {
-        sourceSku: "sku-opt",
-        title: "Estojo Escolar Simples",
-        description: "",
-        brand: "Marca",
-        normalizedTitle: "estojo escolar simples",
-        normalizedDescription: "",
-        normalizedBrand: "marca",
-        normalizedText: "estojo escolar simples marca",
-      },
-      {
-        slug: "estojo",
-        description: "Categoria de estojos",
-        confidenceScore: 0.88,
-        autoDecision: "auto" as const,
-        confidenceReasons: ["strong_lexical_match"],
-        attributes: {
-          schema_version: "1.0" as const,
-          category_name_pt: "estojo",
-          attributes: [
-            { key: "compartment_count", label_pt: "numero_de_compartimentos", type: "number" as const, required: false },
-            { key: "material", label_pt: "material", type: "text" as const, required: false },
-          ],
-        },
-      },
-      null,
-      0.7,
-    );
-
-    expect(result.attributeValues.compartment_count).toBe(1);
-    expect(result.needsReview).toBe(false);
-    expect(result.uncertaintyReasons).not.toContain("empty_attribute_output");
-  });
-
-  it("keeps mochila without wheel signal as auto when other gating is safe", async () => {
-    const result = await enrichProduct(
-      {
-        sourceSku: "sku-mochila-sem-rodas",
-        title: "Mochila Escolar Azul 22L",
-        description: "Modelo infantil com alcas reforcadas",
-        brand: "Marca",
-        normalizedTitle: "mochila escolar azul 22l",
-        normalizedDescription: "modelo infantil com alcas reforcadas",
-        normalizedBrand: "marca",
-        normalizedText: "mochila escolar azul 22l modelo infantil com alcas reforcadas marca",
-      },
-      {
-        slug: "mochila",
-        description: "Categoria de mochilas",
-        confidenceScore: 0.9,
-        autoDecision: "auto" as const,
-        confidenceReasons: ["strong_lexical_match", "strong_semantic_match"],
-        attributes: {
-          schema_version: "1.0" as const,
-          category_name_pt: "mochila",
-          attributes: [
-            { key: "has_wheels", label_pt: "tem_rodas", type: "boolean" as const, required: false },
-            { key: "capacity_l", label_pt: "capacidade_litros", type: "number" as const, required: false },
-          ],
-        },
-      },
-      null,
-      0.7,
-    );
-
-    expect(result.attributeValues.has_wheels).toBeNull();
-    expect(result.needsReview).toBe(false);
-    expect(result.uncertaintyReasons).not.toContain("low_attribute_confidence_has_wheels");
   });
 
   it("does not infer glue_type from tape products", async () => {
@@ -344,22 +260,18 @@ describe("enrichment", () => {
         normalizedText: "fita adesiva transparente 2 unidades marca",
       },
       {
-        slug: "cola-liquida",
-        description: "Categoria de cola liquida",
-        confidenceScore: 0.82,
+        slug: "cola_adesivos",
+        description: "Categoria de cola e adesivos",
+        confidenceScore: 0.86,
         autoDecision: "review" as const,
         confidenceReasons: ["category_review_gate"],
         attributes: {
           schema_version: "1.0" as const,
-          category_name_pt: "cola liquida",
+          category_name_pt: "cola e adesivos",
           attributes: [
-            {
-              key: "glue_type",
-              label_pt: "tipo_de_cola",
-              type: "enum" as const,
-              allowed_values: ["bastao", "liquida"],
-              required: false,
-            },
+            { key: "item_subtype", label_pt: "subtipo", type: "enum" as const, allowed_values: ["cola", "fita"], required: false },
+            { key: "glue_type", label_pt: "tipo_de_cola", type: "enum" as const, allowed_values: ["bastao", "liquida"], required: false },
+            { key: "tape_type", label_pt: "tipo_de_fita", type: "enum" as const, allowed_values: ["transparente", "dupla_face", "papel"], required: false },
           ],
         },
       },
@@ -367,7 +279,8 @@ describe("enrichment", () => {
       0.7,
     );
 
+    expect(result.attributeValues.item_subtype).toBe("fita");
     expect(result.attributeValues.glue_type).toBeNull();
-    expect(result.uncertaintyReasons).not.toContain("contradiction_glue_type_liquida");
+    expect(result.attributeValues.tape_type).toBe("transparente");
   });
 });

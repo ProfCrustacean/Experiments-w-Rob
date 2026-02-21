@@ -6,14 +6,20 @@ import type {
   RunArtifactFormat,
   RunArtifactSummary,
 } from "../types.js";
+import { buildVariantSignature, deriveLegacySplitHint } from "./variant-signature.js";
 import { safeJsonString } from "../utils/text.js";
 
-export type RunArtifactKey = "full_report_xlsx" | "full_report_csv" | "qa_report_csv";
+export type RunArtifactKey =
+  | "full_report_xlsx"
+  | "full_report_csv"
+  | "qa_report_csv"
+  | "confusion_hotlist_csv";
 
 export const FORMAT_TO_ARTIFACT_KEY: Record<RunArtifactFormat, RunArtifactKey> = {
   xlsx: "full_report_xlsx",
   csv: "full_report_csv",
   "qa-csv": "qa_report_csv",
+  "confusion-csv": "confusion_hotlist_csv",
 };
 
 const ARTIFACT_MIME_TYPE: Record<RunArtifactKey, string> = {
@@ -21,6 +27,7 @@ const ARTIFACT_MIME_TYPE: Record<RunArtifactKey, string> = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   full_report_csv: "text/csv; charset=utf-8",
   qa_report_csv: "text/csv; charset=utf-8",
+  confusion_hotlist_csv: "text/csv; charset=utf-8",
 };
 
 export interface RunArtifactPayload {
@@ -45,6 +52,8 @@ interface FullExportCsvRow {
   confidence_reasons: string;
   needs_review: string;
   review_reasons: string;
+  variant_signature: string;
+  legacy_split_hint: string;
   key_attributes: string;
   attributes_json: string;
   attribute_confidence_json: string;
@@ -65,6 +74,8 @@ interface FullExportHumanRow {
   "Razoes confianca": string;
   "Precisa revisao": string;
   "Motivos revisao": string;
+  "Assinatura variante": string;
+  "Hint legado": string;
   "Atributos chave": string;
   "Atributos (JSON)": string;
   "Confianca atributos (JSON)": string;
@@ -81,6 +92,9 @@ export function artifactKeyToFormat(key: string): RunArtifactFormat | null {
   }
   if (key === "qa_report_csv") {
     return "qa-csv";
+  }
+  if (key === "confusion_hotlist_csv") {
+    return "confusion-csv";
   }
   return null;
 }
@@ -106,6 +120,8 @@ function stringifyCsvRows(rows: FullExportCsvRow[]): string {
     "confidence_reasons",
     "needs_review",
     "review_reasons",
+    "variant_signature",
+    "legacy_split_hint",
     "key_attributes",
     "attributes_json",
     "attribute_confidence_json",
@@ -155,6 +171,11 @@ function buildProductRows(input: {
 
     const attributeValues = enrichment?.attributeValues ?? {};
     const attributeConfidence = enrichment?.attributeConfidence ?? {};
+    const categorySlug = enrichment?.categorySlug ?? "sem_categoria";
+    const variantSignature = buildVariantSignature(attributeValues);
+    const legacySplitHint = enrichment
+      ? deriveLegacySplitHint(categorySlug, attributeValues)
+      : "";
     const keyAttributes = getKeyAttributesText(attributeValues);
     const reasons = enrichment?.uncertaintyReasons?.join(" | ") ?? "";
     const confidenceReasons = enrichment?.confidenceReasons?.join(" | ") ?? "";
@@ -167,13 +188,15 @@ function buildProductRows(input: {
       brand: product.brand ?? "",
       price: product.price === undefined ? "" : String(product.price),
       availability: product.availability ?? "",
-      predicted_category: categoryName,
+      predicted_category: categorySlug,
       category_confidence: toFixedConfidence(confidence),
       category_margin: toFixedConfidence(margin),
       auto_decision: enrichment?.autoDecision ?? "review",
       confidence_reasons: confidenceReasons,
       needs_review: String(enrichment?.needsReview ?? true),
       review_reasons: reasons,
+      variant_signature: variantSignature,
+      legacy_split_hint: legacySplitHint,
       key_attributes: keyAttributes,
       attributes_json: safeJsonString(attributeValues),
       attribute_confidence_json: safeJsonString(attributeConfidence),
@@ -189,13 +212,15 @@ function buildProductRows(input: {
       Marca: csvRow.brand,
       Preco: csvRow.price,
       Disponibilidade: csvRow.availability,
-      "Categoria sugerida": csvRow.predicted_category,
+      "Categoria sugerida": `${categoryName} (${categorySlug})`,
       "Confianca categoria": csvRow.category_confidence,
       "Margem categoria": csvRow.category_margin,
       "Decisao automatica": csvRow.auto_decision,
       "Razoes confianca": csvRow.confidence_reasons,
       "Precisa revisao": csvRow.needs_review,
       "Motivos revisao": csvRow.review_reasons,
+      "Assinatura variante": csvRow.variant_signature,
+      "Hint legado": csvRow.legacy_split_hint,
       "Atributos chave": csvRow.key_attributes,
       "Atributos (JSON)": csvRow.attributes_json,
       "Confianca atributos (JSON)": csvRow.attribute_confidence_json,
@@ -228,6 +253,11 @@ function buildSummaryRows(input: {
     contradiction_count: number;
     fallback_count: number;
   }>;
+  familyDistribution: Record<string, number>;
+  familyReviewRate: Record<string, number>;
+  variantFillRate: number;
+  variantFillRateByFamily: Record<string, number>;
+  taxonomyVersion: string;
   stageTimingsMs: Record<string, number>;
   startedAt: Date;
   finishedAt: Date;
@@ -270,6 +300,26 @@ function buildSummaryRows(input: {
     {
       campo: "top_confusion_alerts",
       valor: safeJsonString(input.topConfusionAlerts),
+    },
+    {
+      campo: "family_distribution",
+      valor: safeJsonString(input.familyDistribution),
+    },
+    {
+      campo: "family_review_rate",
+      valor: safeJsonString(input.familyReviewRate),
+    },
+    {
+      campo: "variant_fill_rate",
+      valor: input.variantFillRate.toFixed(4),
+    },
+    {
+      campo: "variant_fill_rate_by_family",
+      valor: safeJsonString(input.variantFillRateByFamily),
+    },
+    {
+      campo: "taxonomy_version",
+      valor: input.taxonomyVersion,
     },
     { campo: "openai_enabled", valor: String(input.openAIEnabled) },
     {
@@ -329,6 +379,8 @@ function buildXlsxBuffer(input: {
     "Razoes confianca",
     "Precisa revisao",
     "Motivos revisao",
+    "Assinatura variante",
+    "Hint legado",
     "Atributos chave",
     "Atributos (JSON)",
     "Confianca atributos (JSON)",
@@ -363,6 +415,8 @@ export function buildRunArtifacts(input: {
   categoriesBySlug: Map<string, PersistedCategory>;
   qaReportFileName: string;
   qaReportCsvContent: string;
+  confusionHotlistFileName: string;
+  confusionHotlistCsvContent: string;
   categoryCount: number;
   needsReviewCount: number;
   autoAcceptedCount: number;
@@ -379,6 +433,11 @@ export function buildRunArtifacts(input: {
     contradiction_count: number;
     fallback_count: number;
   }>;
+  familyDistribution: Record<string, number>;
+  familyReviewRate: Record<string, number>;
+  variantFillRate: number;
+  variantFillRateByFamily: Record<string, number>;
+  taxonomyVersion: string;
   stageTimingsMs: Record<string, number>;
   openAIEnabled: boolean;
   openAIRequestStats: unknown;
@@ -412,6 +471,11 @@ export function buildRunArtifacts(input: {
     attributeValidationFailCount: input.attributeValidationFailCount,
     categoryConfidenceHistogram: input.categoryConfidenceHistogram,
     topConfusionAlerts: input.topConfusionAlerts,
+    familyDistribution: input.familyDistribution,
+    familyReviewRate: input.familyReviewRate,
+    variantFillRate: input.variantFillRate,
+    variantFillRateByFamily: input.variantFillRateByFamily,
+    taxonomyVersion: input.taxonomyVersion,
     stageTimingsMs: input.stageTimingsMs,
     startedAt: input.startedAt,
     finishedAt: input.finishedAt,
@@ -451,7 +515,17 @@ export function buildRunArtifacts(input: {
     sizeBytes: Buffer.byteLength(qaContent, "utf8"),
   };
 
-  const artifacts = [fullXlsxArtifact, fullCsvArtifact, qaArtifact];
+  const confusionContent = input.confusionHotlistCsvContent;
+  const confusionHotlistArtifact: RunArtifactPayload = {
+    key: FORMAT_TO_ARTIFACT_KEY["confusion-csv"],
+    fileName: input.confusionHotlistFileName,
+    format: "confusion-csv",
+    mimeType: ARTIFACT_MIME_TYPE.confusion_hotlist_csv,
+    content: Buffer.from(confusionContent, "utf8"),
+    sizeBytes: Buffer.byteLength(confusionContent, "utf8"),
+  };
+
+  const artifacts = [fullXlsxArtifact, fullCsvArtifact, qaArtifact, confusionHotlistArtifact];
   const artifactSummaries = artifacts.map((artifact) =>
     toArtifactSummary(artifact, input.expiresAt),
   );

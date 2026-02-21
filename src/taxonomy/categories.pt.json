@@ -1,430 +1,145 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "categories": [
     {
-      "slug": "caderno-a4-pautado",
-      "name_pt": "Caderno A4 Pautado",
-      "description_pt": "Cadernos A4 com folhas pautadas para escrita escolar.",
-      "synonyms": ["caderno pautado a4", "caderno espiral a4 pautado"],
-      "prototype_terms": ["caderno a4 pautado", "caderno espiral a4", "folhas pautadas"],
+      "slug": "cadernos_blocos",
+      "name_pt": "Cadernos e Blocos",
+      "description_pt": "Cadernos, blocos de apontamentos, blocos de desenho e recargas para estudo e escrita escolar.",
+      "synonyms": ["cadernos", "blocos", "bloco escolar", "caderno escolar"],
+      "prototype_terms": ["caderno", "bloco", "apontamentos", "brochura", "espiral", "flashcards", "recarga"],
       "is_fallback": false,
       "default_attributes": [
-        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
+        { "key": "item_subtype", "label_pt": "subtipo", "type": "enum", "allowed_values": ["caderno", "bloco_apontamentos", "bloco_desenho", "flashcards", "recarga"], "required": false },
         { "key": "ruling", "label_pt": "tipo_de_folha", "type": "enum", "allowed_values": ["pautado", "quadriculado", "liso"], "required": false },
+        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
         { "key": "sheet_count", "label_pt": "numero_de_folhas", "type": "number", "required": false }
       ]
     },
     {
-      "slug": "caderno-a4-quadriculado",
-      "name_pt": "Caderno A4 Quadriculado",
-      "description_pt": "Cadernos A4 com folhas quadriculadas para matemática e desenho técnico.",
-      "synonyms": ["caderno quadriculado a4"],
-      "prototype_terms": ["caderno a4 quadriculado", "caderno milimetrado a4"],
+      "slug": "escrita",
+      "name_pt": "Escrita",
+      "description_pt": "Instrumentos e apoio de escrita, incluindo canetas, lapis, marcadores, borrachas, afiadores e corretor.",
+      "synonyms": ["material de escrita", "canetas e lapis", "escrever"],
+      "prototype_terms": ["caneta", "lapis", "marcador", "borracha", "afiador", "corretor"],
       "is_fallback": false,
       "default_attributes": [
-        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
-        { "key": "ruling", "label_pt": "tipo_de_folha", "type": "enum", "allowed_values": ["pautado", "quadriculado", "liso"], "required": false },
-        { "key": "sheet_count", "label_pt": "numero_de_folhas", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "caderno-a5-pautado",
-      "name_pt": "Caderno A5 Pautado",
-      "description_pt": "Cadernos A5 pautados para apontamentos escolares.",
-      "synonyms": ["caderno pautado a5"],
-      "prototype_terms": ["caderno a5 pautado", "caderno brochura a5"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
-        { "key": "ruling", "label_pt": "tipo_de_folha", "type": "enum", "allowed_values": ["pautado", "quadriculado", "liso"], "required": false },
-        { "key": "sheet_count", "label_pt": "numero_de_folhas", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "caderno-a5-quadriculado",
-      "name_pt": "Caderno A5 Quadriculado",
-      "description_pt": "Cadernos A5 com folhas quadriculadas.",
-      "synonyms": ["caderno quadriculado a5"],
-      "prototype_terms": ["caderno a5 quadriculado"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
-        { "key": "ruling", "label_pt": "tipo_de_folha", "type": "enum", "allowed_values": ["pautado", "quadriculado", "liso"], "required": false },
-        { "key": "sheet_count", "label_pt": "numero_de_folhas", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "caderno-a5-liso",
-      "name_pt": "Caderno A5 Liso",
-      "description_pt": "Cadernos A5 com folhas lisas.",
-      "synonyms": ["caderno liso a5"],
-      "prototype_terms": ["caderno a5 liso", "caderno sem pauta a5"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
-        { "key": "ruling", "label_pt": "tipo_de_folha", "type": "enum", "allowed_values": ["pautado", "quadriculado", "liso"], "required": false },
-        { "key": "sheet_count", "label_pt": "numero_de_folhas", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "caneta-esferografica",
-      "name_pt": "Caneta Esferografica",
-      "description_pt": "Canetas esferograficas para escrita escolar.",
-      "synonyms": ["esferografica", "caneta bic"],
-      "prototype_terms": ["caneta esferografica", "esferografica azul", "caneta 1.0 mm"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "ink_type", "label_pt": "tipo_de_tinta", "type": "enum", "allowed_values": ["gel", "esferografica", "roller"], "required": false },
-        { "key": "point_size_mm", "label_pt": "espessura_ponta_mm", "type": "number", "required": false },
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "caneta-gel",
-      "name_pt": "Caneta Gel",
-      "description_pt": "Canetas de tinta gel para escrita fina ou colorida.",
-      "synonyms": ["gel pen", "caneta gel"],
-      "prototype_terms": ["caneta gel", "tinta gel", "caneta colorida gel"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "ink_type", "label_pt": "tipo_de_tinta", "type": "enum", "allowed_values": ["gel", "esferografica", "roller"], "required": false },
-        { "key": "point_size_mm", "label_pt": "espessura_ponta_mm", "type": "number", "required": false },
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "marcador-texto",
-      "name_pt": "Marcador",
-      "description_pt": "Marcadores e marca-textos para realce e escrita.",
-      "synonyms": ["marca texto", "highlighter", "marcador"],
-      "prototype_terms": ["marca texto", "marcador", "highlighter"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "tip_type", "label_pt": "tipo_de_ponta", "type": "enum", "allowed_values": ["chanfrada", "fina", "media"], "required": false },
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "lapis-hb",
-      "name_pt": "Lapis HB",
-      "description_pt": "Lapis grafite e lapiseiras com gradacao HB ou similar.",
-      "synonyms": ["lapis grafite", "lapis hb", "lapiseira"],
-      "prototype_terms": ["lapis hb", "grafite hb", "lapiseira 0.5"],
-      "is_fallback": false,
-      "default_attributes": [
+        { "key": "item_subtype", "label_pt": "subtipo", "type": "enum", "allowed_values": ["caneta", "lapis_grafite", "lapis_cor", "marcador", "borracha", "afiador", "corretor"], "required": false },
+        { "key": "ink_type", "label_pt": "tipo_de_tinta", "type": "enum", "allowed_values": ["gel", "esferografica", "roller", "marcador"], "required": false },
         { "key": "hardness", "label_pt": "graduacao", "type": "enum", "allowed_values": ["HB", "2B", "B", "H"], "required": false },
+        { "key": "point_size_mm", "label_pt": "espessura_ponta_mm", "type": "number", "required": false },
         { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false },
         { "key": "color_set", "label_pt": "conjunto_de_cores", "type": "boolean", "required": false }
       ]
     },
     {
-      "slug": "lapis-cor",
-      "name_pt": "Lapis de Cor",
-      "description_pt": "Lapis de cor e conjuntos para colorir.",
-      "synonyms": ["lapis de cor", "cores", "colored pencils"],
-      "prototype_terms": ["lapis de cor", "caixa de lapis de cor", "24 cores"],
+      "slug": "organizacao_arquivo",
+      "name_pt": "Organizacao e Arquivo",
+      "description_pt": "Produtos para organizar, arquivar e etiquetar material escolar e documentos.",
+      "synonyms": ["arquivo escolar", "organizacao", "pastas e etiquetas"],
+      "prototype_terms": ["pasta", "arquivo", "etiquetas", "agrafador", "agrafos", "clips", "post-it"],
       "is_fallback": false,
       "default_attributes": [
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false },
-        { "key": "color_set", "label_pt": "conjunto_de_cores", "type": "boolean", "required": false }
-      ]
-    },
-    {
-      "slug": "afia",
-      "name_pt": "Afia",
-      "description_pt": "Afiadores para lapis, com ou sem deposito.",
-      "synonyms": ["afiador", "afia", "apontador"],
-      "prototype_terms": ["afia com deposito", "afiador escolar"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false },
-        { "key": "color", "label_pt": "cor", "type": "text", "required": false }
-      ]
-    },
-    {
-      "slug": "borracha",
-      "name_pt": "Borracha",
-      "description_pt": "Borrachas escolares para apagar grafite.",
-      "synonyms": ["borracha", "eraser"],
-      "prototype_terms": ["borracha escolar", "borracha branca"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "material", "label_pt": "material", "type": "enum", "allowed_values": ["vinil", "borracha", "plastica"], "required": false },
+        { "key": "item_subtype", "label_pt": "subtipo", "type": "enum", "allowed_values": ["pasta", "etiqueta", "agrafador", "agrafos", "clips", "bloco_aderente"], "required": false },
+        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
         { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
       ]
     },
     {
-      "slug": "cola-bastao",
-      "name_pt": "Cola Bastao",
-      "description_pt": "Colas em bastao para trabalhos escolares.",
-      "synonyms": ["cola stick", "cola bastao"],
-      "prototype_terms": ["cola bastao", "stick glue"],
+      "slug": "geometria_corte",
+      "name_pt": "Geometria e Corte",
+      "description_pt": "Reguas, esquadros, transferidores, tesouras e compassos para uso escolar.",
+      "synonyms": ["geometria", "medicao", "corte escolar"],
+      "prototype_terms": ["regua", "esquadro", "transferidor", "tesoura", "compasso"],
       "is_fallback": false,
       "default_attributes": [
-        { "key": "glue_type", "label_pt": "tipo_de_cola", "type": "enum", "allowed_values": ["bastao", "liquida"], "required": false },
-        { "key": "volume_ml", "label_pt": "volume_ml", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "cola-liquida",
-      "name_pt": "Cola Liquida",
-      "description_pt": "Colas liquidas para trabalhos escolares.",
-      "synonyms": ["cola liquida", "cola branca"],
-      "prototype_terms": ["cola liquida", "cola 100 ml"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "glue_type", "label_pt": "tipo_de_cola", "type": "enum", "allowed_values": ["bastao", "liquida"], "required": false },
-        { "key": "volume_ml", "label_pt": "volume_ml", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "regua",
-      "name_pt": "Regua",
-      "description_pt": "Reguas, esquadros e transferidores.",
-      "synonyms": ["regua", "esquadro", "transferidor"],
-      "prototype_terms": ["regua 30 cm", "esquadro"],
-      "is_fallback": false,
-      "default_attributes": [
+        { "key": "item_subtype", "label_pt": "subtipo", "type": "enum", "allowed_values": ["regua", "esquadro_transferidor", "tesoura", "compasso"], "required": false },
         { "key": "length_cm", "label_pt": "comprimento_cm", "type": "number", "required": false },
-        { "key": "material", "label_pt": "material", "type": "enum", "allowed_values": ["plastico", "metal", "madeira"], "required": false }
+        { "key": "tip_safety", "label_pt": "ponta_de_seguranca", "type": "boolean", "required": false }
       ]
     },
     {
-      "slug": "tesoura",
-      "name_pt": "Tesoura",
-      "description_pt": "Tesouras escolares de seguranca.",
-      "synonyms": ["tesoura", "scissor"],
-      "prototype_terms": ["tesoura escolar", "ponta redonda"],
+      "slug": "transporte_escolar",
+      "name_pt": "Transporte Escolar",
+      "description_pt": "Mochilas e estojos para transporte e organizacao do material escolar.",
+      "synonyms": ["mochilas", "estojos", "transporte"],
+      "prototype_terms": ["mochila", "estojo", "trolley", "penal"],
       "is_fallback": false,
       "default_attributes": [
-        { "key": "tip_safety", "label_pt": "ponta_de_seguranca", "type": "boolean", "required": false },
-        { "key": "length_cm", "label_pt": "comprimento_cm", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "estojo",
-      "name_pt": "Estojo",
-      "description_pt": "Estojos porta-material escolar.",
-      "synonyms": ["estojo", "penal", "porta lapis"],
-      "prototype_terms": ["estojo escolar", "estojo triplo"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "compartment_count", "label_pt": "numero_de_compartimentos", "type": "number", "required": false },
-        { "key": "material", "label_pt": "material", "type": "text", "required": false }
-      ]
-    },
-    {
-      "slug": "mochila",
-      "name_pt": "Mochila",
-      "description_pt": "Mochilas escolares com ou sem rodas.",
-      "synonyms": ["mochila", "backpack"],
-      "prototype_terms": ["mochila escolar", "mochila com rodas"],
-      "is_fallback": false,
-      "default_attributes": [
+        { "key": "item_subtype", "label_pt": "subtipo", "type": "enum", "allowed_values": ["mochila", "estojo"], "required": false },
         { "key": "has_wheels", "label_pt": "tem_rodas", "type": "boolean", "required": false },
         { "key": "capacity_l", "label_pt": "capacidade_litros", "type": "number", "required": false },
+        { "key": "compartment_count", "label_pt": "numero_de_compartimentos", "type": "number", "required": false },
         { "key": "target_age", "label_pt": "faixa_etaria", "type": "text", "required": false }
       ]
     },
     {
-      "slug": "bloco-notas-aderentes",
-      "name_pt": "Bloco de Notas Aderentes",
-      "description_pt": "Blocos de notas autocolantes e post-its.",
-      "synonyms": ["bloco notas aderente", "post it", "notas aderentes"],
-      "prototype_terms": ["bloco de notas aderente", "post-it"],
+      "slug": "artes",
+      "name_pt": "Artes",
+      "description_pt": "Produtos para artes visuais e trabalhos manuais, como tintas, pinceis e kits artisticos.",
+      "synonyms": ["material artistico", "pintura", "desenho artistico"],
+      "prototype_terms": ["tinta", "pincel", "artistico", "guache", "aquarela", "bloco artistico"],
       "is_fallback": false,
       "default_attributes": [
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false },
-        { "key": "color_set", "label_pt": "conjunto_de_cores", "type": "boolean", "required": false }
-      ]
-    },
-    {
-      "slug": "bloco-desenho",
-      "name_pt": "Bloco de Desenho",
-      "description_pt": "Blocos de desenho, papel vegetal e trabalhos manuais.",
-      "synonyms": ["bloco desenho", "papel vegetal", "bloco trabalhos manuais"],
-      "prototype_terms": ["bloco de desenho", "bloco a4", "papel vegetal"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
-        { "key": "sheet_count", "label_pt": "numero_de_folhas", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "etiquetas-adesivas",
-      "name_pt": "Etiquetas Adesivas",
-      "description_pt": "Etiquetas adesivas escolares e de arquivo.",
-      "synonyms": ["etiquetas", "etiquetas adesivas"],
-      "prototype_terms": ["etiquetas adesivas", "etiquetas 13 x 38"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false },
-        { "key": "color", "label_pt": "cor", "type": "text", "required": false }
-      ]
-    },
-    {
-      "slug": "agrafador",
-      "name_pt": "Agrafador",
-      "description_pt": "Agrafadores escolares e de escritorio.",
-      "synonyms": ["agrafador", "stapler"],
-      "prototype_terms": ["agrafador mini", "agrafador alicate"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "agrafos-24-6",
-      "name_pt": "Agrafos 24/6",
-      "description_pt": "Recargas de agrafos, especialmente 24/6.",
-      "synonyms": ["agrafos", "agrafos 24/6"],
-      "prototype_terms": ["agrafos 24/6", "2x1000 agrafos"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "pasta-arquivo",
-      "name_pt": "Pasta de Arquivo",
-      "description_pt": "Pastas e bolsas de arquivo escolar.",
-      "synonyms": ["pasta", "arquivo", "bolsa catalogo"],
-      "prototype_terms": ["pasta a4", "pasta arquivo", "bolsa catalogo"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
-        { "key": "color", "label_pt": "cor", "type": "text", "required": false }
-      ]
-    },
-    {
-      "slug": "papel-a4",
-      "name_pt": "Papel A4",
-      "description_pt": "Resmas e recargas de papel A4.",
-      "synonyms": ["resma a4", "papel impressao a4", "recarga papel a4"],
-      "prototype_terms": ["resma de papel a4", "500 folhas", "papel a4 70g"],
-      "is_fallback": false,
-      "default_attributes": [
+        { "key": "item_subtype", "label_pt": "subtipo", "type": "enum", "allowed_values": ["tinta", "pincel", "papel_artistico", "kit_artistico"], "required": false },
+        { "key": "paint_type", "label_pt": "tipo_de_tinta", "type": "enum", "allowed_values": ["guache", "aquarela", "acrilica", "tempera"], "required": false },
+        { "key": "brush_type", "label_pt": "tipo_de_pincel", "type": "enum", "allowed_values": ["chato", "redondo", "esponja"], "required": false },
         { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
         { "key": "sheet_count", "label_pt": "numero_de_folhas", "type": "number", "required": false },
+        { "key": "volume_ml", "label_pt": "volume_ml", "type": "number", "required": false },
         { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
       ]
     },
     {
-      "slug": "bloco-apontamentos",
-      "name_pt": "Bloco de Apontamentos",
-      "description_pt": "Blocos de apontamentos e blocos pautados para notas escolares.",
-      "synonyms": ["bloco de apontamentos", "bloco pautado", "bloco de notas"],
-      "prototype_terms": ["bloco de apontamentos a4", "bloco pautado", "bloco de notas a5"],
+      "slug": "cola_adesivos",
+      "name_pt": "Cola e Adesivos",
+      "description_pt": "Colas e fitas adesivas para trabalhos escolares, com separacao entre cola e fita.",
+      "synonyms": ["colas", "adesivos", "fita adesiva"],
+      "prototype_terms": ["cola", "cola bastao", "cola liquida", "fita", "dupla face"],
       "is_fallback": false,
       "default_attributes": [
-        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
-        { "key": "ruling", "label_pt": "tipo_de_folha", "type": "enum", "allowed_values": ["pautado", "quadriculado", "liso"], "required": false },
-        { "key": "sheet_count", "label_pt": "numero_de_folhas", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "calculadora",
-      "name_pt": "Calculadora",
-      "description_pt": "Calculadoras escolares e cientificas.",
-      "synonyms": ["calculadora", "scientific calculator"],
-      "prototype_terms": ["calculadora cientifica", "calculadora escolar"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "scientific", "label_pt": "cientifica", "type": "boolean", "required": false },
+        { "key": "item_subtype", "label_pt": "subtipo", "type": "enum", "allowed_values": ["cola", "fita"], "required": false },
+        { "key": "glue_type", "label_pt": "tipo_de_cola", "type": "enum", "allowed_values": ["bastao", "liquida"], "required": false },
+        { "key": "tape_type", "label_pt": "tipo_de_fita", "type": "enum", "allowed_values": ["transparente", "dupla_face", "papel"], "required": false },
+        { "key": "volume_ml", "label_pt": "volume_ml", "type": "number", "required": false },
         { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
       ]
     },
     {
-      "slug": "compasso",
-      "name_pt": "Compasso",
-      "description_pt": "Compassos escolares e conjuntos de geometria.",
-      "synonyms": ["compasso", "compass"],
-      "prototype_terms": ["compasso escolar", "compasso metal", "compasso com minas"],
+      "slug": "papel",
+      "name_pt": "Papel",
+      "description_pt": "Papel de impressao e recargas de papel para uso escolar.",
+      "synonyms": ["resma", "papel impressao", "papel escolar"],
+      "prototype_terms": ["resma", "papel a4", "recarga papel", "80g"],
       "is_fallback": false,
       "default_attributes": [
+        { "key": "item_subtype", "label_pt": "subtipo", "type": "enum", "allowed_values": ["resma", "recarga_papel"], "required": false },
+        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5", "carta", "oficio"], "required": false },
+        { "key": "sheet_count", "label_pt": "numero_de_folhas", "type": "number", "required": false },
         { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false },
-        { "key": "material", "label_pt": "material", "type": "text", "required": false }
+        { "key": "weight_gsm", "label_pt": "gramagem_gsm", "type": "number", "required": false }
       ]
     },
     {
-      "slug": "corretor",
-      "name_pt": "Corretor",
-      "description_pt": "Corretor liquido, em caneta ou fita corretora para uso escolar.",
-      "synonyms": ["corretor", "fita corretora", "liquid paper"],
-      "prototype_terms": ["corretor escolar", "fita corretora", "caneta corretora"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "correction_type", "label_pt": "tipo_de_corretor", "type": "enum", "allowed_values": ["fita", "caneta", "liquido"], "required": false },
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "fita-adesiva",
-      "name_pt": "Fita Adesiva",
-      "description_pt": "Fitas adesivas escolares, transparentes ou dupla face.",
-      "synonyms": ["fita adesiva", "durex", "dupla face"],
-      "prototype_terms": ["fita adesiva transparente", "fita dupla face", "fita cola"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "tape_type", "label_pt": "tipo_de_fita", "type": "enum", "allowed_values": ["transparente", "dupla_face", "decorativa"], "required": false },
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "clips-papel",
-      "name_pt": "Clips de Papel",
-      "description_pt": "Clips e molas para organizacao de folhas.",
-      "synonyms": ["clips", "clipes", "molas de papel"],
-      "prototype_terms": ["clips cromados", "caixa de clips", "molas de papel"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false },
-        { "key": "size", "label_pt": "tamanho", "type": "text", "required": false }
-      ]
-    },
-    {
-      "slug": "pincel-artistico",
-      "name_pt": "Pincel Artistico",
-      "description_pt": "Pinceis para pintura escolar e artistica.",
-      "synonyms": ["pinceis", "pincel", "brush set"],
-      "prototype_terms": ["conjunto de pinceis", "pinceis redondos", "pinceis planos"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "brush_type", "label_pt": "tipo_de_pincel", "type": "enum", "allowed_values": ["redondo", "plano", "sortido"], "required": false },
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "tinta-artistica",
-      "name_pt": "Tinta Artistica",
-      "description_pt": "Tintas escolares como guache, aquarela e acrilica.",
-      "synonyms": ["guache", "aquarela", "tinta acrilica"],
-      "prototype_terms": ["guache lavavel", "aquarela 12 unidades", "tinta acrilica 75ml"],
-      "is_fallback": false,
-      "default_attributes": [
-        { "key": "paint_type", "label_pt": "tipo_de_tinta", "type": "enum", "allowed_values": ["guache", "aquarela", "acrilica"], "required": false },
-        { "key": "volume_ml", "label_pt": "volume_ml", "type": "number", "required": false }
-      ]
-    },
-    {
-      "slug": "fora-escopo-escolar",
-      "name_pt": "Fora de Escopo Escolar",
-      "description_pt": "Itens nao nucleares para lista escolar, roteados para revisao manual.",
-      "synonyms": ["fora de escopo", "nao escolar", "acessorio geral"],
-      "prototype_terms": ["auriculares wireless", "grinalda led", "bolsa telemovel", "caixa de lanche"],
-      "is_fallback": false,
-      "default_attributes": []
-    },
-    {
-      "slug": "material-escolar-diverso",
-      "name_pt": "Material Escolar Diverso",
-      "description_pt": "Categoria de fallback para itens escolares sem classificacao confiavel.",
-      "synonyms": ["material escolar", "diverso", "outros"],
-      "prototype_terms": ["material escolar diverso"],
+      "slug": "outros_escolares",
+      "name_pt": "Outros Escolares",
+      "description_pt": "Outros itens escolares que nao encaixam claramente nas familias principais.",
+      "synonyms": ["material escolar diverso", "outros", "diversos escolares"],
+      "prototype_terms": ["calculadora", "acessorio escolar", "kit escolar", "diverso"],
       "is_fallback": true,
       "default_attributes": [
-        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false },
-        { "key": "color", "label_pt": "cor", "type": "text", "required": false }
+        { "key": "item_subtype", "label_pt": "subtipo", "type": "enum", "allowed_values": ["calculadora", "acessorio_escolar", "kit_escolar"], "required": false },
+        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
+      ]
+    },
+    {
+      "slug": "fora_escopo_escolar",
+      "name_pt": "Fora de Escopo Escolar",
+      "description_pt": "Itens fora do escopo de material escolar principal.",
+      "synonyms": ["fora escopo", "nao escolar", "out of scope"],
+      "prototype_terms": ["auriculares", "eletronico", "casa", "beleza", "cuidado pessoal"],
+      "is_fallback": false,
+      "default_attributes": [
+        { "key": "item_subtype", "label_pt": "subtipo", "type": "text", "required": false }
       ]
     }
   ]

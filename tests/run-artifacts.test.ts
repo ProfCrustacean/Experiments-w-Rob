@@ -8,6 +8,7 @@ describe("run artifacts", () => {
     expect(artifactKeyToFormat("full_report_xlsx")).toBe("xlsx");
     expect(artifactKeyToFormat("full_report_csv")).toBe("csv");
     expect(artifactKeyToFormat("qa_report_csv")).toBe("qa-csv");
+    expect(artifactKeyToFormat("confusion_hotlist_csv")).toBe("confusion-csv");
     expect(artifactKeyToFormat("unknown")).toBeNull();
   });
 
@@ -34,17 +35,17 @@ describe("run artifacts", () => {
         "sku-1",
         {
           sourceSku: "sku-1",
-          categorySlug: "caderno-a4",
+          categorySlug: "cadernos_blocos",
           categoryConfidence: 0.92,
           categoryTop2Confidence: 0.75,
           categoryMargin: 0.17,
           autoDecision: "auto",
-          confidenceReasons: ["strong_lexical_match", "strong_semantic_match"],
+          confidenceReasons: ["family_assignment", "strong_lexical_match"],
           isFallbackCategory: false,
           categoryContradictionCount: 0,
           attributeValidationFailCount: 0,
-          attributeValues: { format: "A4", ruling: "pautado" },
-          attributeConfidence: { format: 0.9, ruling: 0.88 },
+          attributeValues: { item_subtype: "caderno", format: "A4", ruling: "pautado" },
+          attributeConfidence: { item_subtype: 0.9, format: 0.9, ruling: 0.88 },
           needsReview: false,
           uncertaintyReasons: [],
         },
@@ -53,15 +54,15 @@ describe("run artifacts", () => {
 
     const categories = new Map<string, PersistedCategory>([
       [
-        "caderno-a4",
+        "cadernos_blocos",
         {
           id: "cat-1",
-          slug: "caderno-a4",
-          name_pt: "caderno a4 pautado",
-          description_pt: "Categoria de cadernos A4 pautados.",
+          slug: "cadernos_blocos",
+          name_pt: "Cadernos e Blocos",
+          description_pt: "Categoria de cadernos e blocos.",
           attributes_jsonb: {
             schema_version: "1.0",
-            category_name_pt: "caderno a4 pautado",
+            category_name_pt: "cadernos e blocos",
             attributes: [],
           },
         },
@@ -81,6 +82,9 @@ describe("run artifacts", () => {
       qaReportFileName: "qa_report_run-123.csv",
       qaReportCsvContent:
         "run_id,source_sku,title,predicted_category,needs_review,key_attributes,review_status,review_notes\n",
+      confusionHotlistFileName: "confusion_hotlist_run-123.csv",
+      confusionHotlistCsvContent:
+        "category_a,category_b,affected_count,low_margin_count,contradiction_count,sample_skus,sample_titles,top_tokens,suggested_include_a,suggested_exclude_a,suggested_include_b,suggested_exclude_b\n",
       categoryCount: 1,
       needsReviewCount: 0,
       autoAcceptedCount: 1,
@@ -91,6 +95,11 @@ describe("run artifacts", () => {
       attributeValidationFailCount: 0,
       categoryConfidenceHistogram: { "0.8-1.0": 1 },
       topConfusionAlerts: [],
+      familyDistribution: { cadernos_blocos: 1 },
+      familyReviewRate: { cadernos_blocos: 0 },
+      variantFillRate: 1,
+      variantFillRateByFamily: { cadernos_blocos: 1 },
+      taxonomyVersion: "2.0|2.0",
       stageTimingsMs: { enrichment_ms: 100, embedding_ms: 200 },
       openAIEnabled: true,
       openAIRequestStats: { retry_count: 2 },
@@ -101,7 +110,7 @@ describe("run artifacts", () => {
       expiresAt,
     });
 
-    expect(result.artifacts).toHaveLength(3);
+    expect(result.artifacts).toHaveLength(4);
     for (const artifact of result.artifacts) {
       expect(artifact.sizeBytes).toBeGreaterThan(0);
     }
@@ -109,7 +118,7 @@ describe("run artifacts", () => {
     const csvArtifact = result.artifacts.find((artifact) => artifact.key === "full_report_csv");
     expect(csvArtifact).toBeTruthy();
     expect(csvArtifact?.content.toString("utf8")).toContain(
-      "source_sku,title,brand,price,availability,predicted_category,category_confidence,category_margin,auto_decision,confidence_reasons,needs_review",
+      "source_sku,title,brand,price,availability,predicted_category,category_confidence,category_margin,auto_decision,confidence_reasons,needs_review,review_reasons,variant_signature,legacy_split_hint",
     );
 
     const xlsxArtifact = result.artifacts.find((artifact) => artifact.key === "full_report_xlsx");
@@ -122,7 +131,12 @@ describe("run artifacts", () => {
     const qaArtifact = result.artifacts.find((artifact) => artifact.key === "qa_report_csv");
     expect(qaArtifact?.fileName).toBe("qa_report_run-123.csv");
 
-    expect(result.artifactSummaries).toHaveLength(3);
+    const confusionArtifact = result.artifacts.find(
+      (artifact) => artifact.key === "confusion_hotlist_csv",
+    );
+    expect(confusionArtifact?.fileName).toBe("confusion_hotlist_run-123.csv");
+
+    expect(result.artifactSummaries).toHaveLength(4);
     expect(result.artifactSummaries[0]?.expiresAt).toBe(expiresAt.toISOString());
   });
 });

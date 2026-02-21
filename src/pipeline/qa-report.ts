@@ -14,6 +14,8 @@ export interface QAReportRow {
   auto_decision: "auto" | "review";
   top_confidence_reasons: string;
   needs_review: boolean;
+  variant_signature: string;
+  legacy_split_hint: string;
   key_attributes: string;
   corrected_category: string;
   corrected_attributes_json: string;
@@ -39,6 +41,8 @@ function stringifyCsv(rows: QAReportRow[]): string {
     "auto_decision",
     "top_confidence_reasons",
     "needs_review",
+    "variant_signature",
+    "legacy_split_hint",
     "key_attributes",
     "corrected_category",
     "corrected_attributes_json",
@@ -57,6 +61,8 @@ function stringifyCsv(rows: QAReportRow[]): string {
       row.auto_decision,
       row.top_confidence_reasons,
       String(row.needs_review),
+      row.variant_signature,
+      row.legacy_split_hint,
       row.key_attributes,
       row.corrected_category,
       row.corrected_attributes_json,
@@ -68,6 +74,62 @@ function stringifyCsv(rows: QAReportRow[]): string {
   );
 
   return [header.join(","), ...body].join("\n");
+}
+
+function stratifiedSampleRows<T extends { predictedCategory: string }>(
+  rows: T[],
+  sampleSize: number,
+): T[] {
+  if (sampleSize >= rows.length) {
+    return [...rows];
+  }
+
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = row.predictedCategory || "sem_categoria";
+    const existing = groups.get(key) ?? [];
+    existing.push(row);
+    groups.set(key, existing);
+  }
+
+  const shuffledGroups = [...groups.entries()].map(([key, groupRows]) => ({
+    key,
+    rows: sampleWithoutReplacement(groupRows, groupRows.length),
+  }));
+
+  if (sampleSize <= shuffledGroups.length) {
+    return sampleWithoutReplacement(shuffledGroups, sampleSize)
+      .map((group) => group.rows[0])
+      .filter(Boolean);
+  }
+
+  const sampled: T[] = [];
+  for (const group of shuffledGroups) {
+    const row = group.rows.shift();
+    if (row) {
+      sampled.push(row);
+    }
+  }
+
+  while (sampled.length < sampleSize) {
+    let added = false;
+    for (const group of shuffledGroups) {
+      if (sampled.length >= sampleSize) {
+        break;
+      }
+      const row = group.rows.shift();
+      if (!row) {
+        continue;
+      }
+      sampled.push(row);
+      added = true;
+    }
+    if (!added) {
+      break;
+    }
+  }
+
+  return sampled.slice(0, sampleSize);
 }
 
 export async function writeQAReport(input: {
@@ -82,6 +144,8 @@ export async function writeQAReport(input: {
     autoDecision: "auto" | "review";
     topConfidenceReasons: string[];
     needsReview: boolean;
+    variantSignature: string;
+    legacySplitHint: string;
     attributeValues: Record<string, unknown>;
   }>;
   sampleSize: number;
@@ -94,7 +158,7 @@ export async function writeQAReport(input: {
 }> {
   await mkdir(input.outputDir, { recursive: true });
 
-  const sampled = sampleWithoutReplacement(input.rows, input.sampleSize);
+  const sampled = stratifiedSampleRows(input.rows, input.sampleSize);
   const reportRows: QAReportRow[] = sampled.map((row) => ({
     run_id: input.runId,
     source_sku: row.sourceSku,
@@ -105,6 +169,8 @@ export async function writeQAReport(input: {
     auto_decision: row.autoDecision,
     top_confidence_reasons: row.topConfidenceReasons.join(" | "),
     needs_review: row.needsReview,
+    variant_signature: row.variantSignature,
+    legacy_split_hint: row.legacySplitHint,
     key_attributes: safeJsonString(row.attributeValues),
     corrected_category: "",
     corrected_attributes_json: "",

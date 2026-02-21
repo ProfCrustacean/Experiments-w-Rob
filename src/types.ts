@@ -89,7 +89,7 @@ export interface PipelineRunSummary {
   status: "completed_pending_review" | "failed";
 }
 
-export type RunArtifactFormat = "xlsx" | "csv" | "qa-csv";
+export type RunArtifactFormat = "xlsx" | "csv" | "qa-csv" | "confusion-csv";
 
 export interface RunArtifactSummary {
   key: string;

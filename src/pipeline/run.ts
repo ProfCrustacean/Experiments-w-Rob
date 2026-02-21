@@ -12,6 +12,7 @@ import type {
 } from "../types.js";
 import { runMigrations } from "../db/migrate.js";
 import { assignCategoriesForProducts } from "./category-assignment.js";
+import { buildConfusionHotlist } from "./confusion-hotlist.js";
 import { buildEmbeddingText, generateEmbeddingsForItems } from "./embedding.js";
 import { enrichProductWithSignals } from "./enrichment.js";
 import { buildCategoryDraftsFromTaxonomyAssignments } from "./taxonomy-category-drafts.js";
@@ -30,6 +31,7 @@ import {
 } from "./persist.js";
 import { writeQAReport } from "./qa-report.js";
 import { buildRunArtifacts } from "./run-artifacts.js";
+import { buildVariantSignature, deriveLegacySplitHint } from "./variant-signature.js";
 import { FallbackProvider } from "../services/fallback.js";
 import { OpenAIProvider, type OpenAITelemetryCallback } from "../services/openai.js";
 import { RunLogger } from "../logging/run-logger.js";
@@ -109,6 +111,15 @@ function shouldLogProgress(done: number, total: number): boolean {
     return true;
   }
   return done === 1 || done % 10 === 0;
+}
+
+function hasVariantValues(values: Record<string, string | number | boolean | null>): boolean {
+  return Object.entries(values).some(([key, value]) => {
+    if (key === "item_subtype") {
+      return false;
+    }
+    return value !== null && value !== "";
+  });
 }
 
 function partitionProductsBySample(
@@ -717,20 +728,21 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
     const qaStart = Date.now();
     const qaRows = partitioned.sampled.map((product) => {
       const enrichment = enrichmentMap.get(product.sourceSku);
-      const categoryName = enrichment
-        ? categoriesBySlug.get(enrichment.categorySlug)?.name_pt ?? "sem_categoria"
-        : "sem_categoria";
+      const categorySlug = enrichment?.categorySlug ?? "sem_categoria";
+      const attributeValues = enrichment?.attributeValues ?? {};
 
       return {
         sourceSku: product.sourceSku,
         title: product.title,
-        predictedCategory: categoryName,
+        predictedCategory: categorySlug,
         predictedCategoryConfidence: enrichment?.categoryConfidence ?? 0,
         predictedCategoryMargin: enrichment?.categoryMargin ?? 0,
         autoDecision: enrichment?.autoDecision ?? "review",
         topConfidenceReasons: enrichment?.confidenceReasons ?? [],
         needsReview: enrichment?.needsReview ?? true,
-        attributeValues: enrichment?.attributeValues ?? {},
+        variantSignature: buildVariantSignature(attributeValues),
+        legacySplitHint: deriveLegacySplitHint(categorySlug, attributeValues),
+        attributeValues,
       };
     });
 
@@ -746,6 +758,27 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       elapsed_ms: stageTimingsMs.qa_report_ms,
       qa_sampled_rows: qaResult.sampledRows,
       qa_total_rows: qaResult.totalRows,
+    });
+
+    logger.info("pipeline", "stage.started", "Starting confusion hotlist stage.", {
+      stage_name: "confusion_hotlist",
+    });
+    const confusionHotlistStart = Date.now();
+    const confusionHotlist = buildConfusionHotlist({
+      products: partitioned.sampled,
+      assignmentsBySku: categoryAssignments.assignmentsBySku,
+      maxRows: 20,
+    });
+    await mkdir(config.OUTPUT_DIR, { recursive: true });
+    const confusionHotlistFileName = `confusion_hotlist_${runId}.csv`;
+    const confusionHotlistPath = path.join(config.OUTPUT_DIR, confusionHotlistFileName);
+    await writeFile(confusionHotlistPath, confusionHotlist.csvContent, "utf8");
+    stageTimingsMs.confusion_hotlist_ms = Date.now() - confusionHotlistStart;
+    logger.info("pipeline", "stage.completed", "Confusion hotlist stage completed.", {
+      stage_name: "confusion_hotlist",
+      elapsed_ms: stageTimingsMs.confusion_hotlist_ms,
+      pair_count: confusionHotlist.rows.length,
+      file_name: confusionHotlistFileName,
     });
 
     const needsReviewCount = qaRows.filter((row) => row.needsReview).length;
@@ -767,6 +800,34 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
     const needsReviewRate = processedCount === 0 ? 0 : needsReviewCount / processedCount;
     const attributeValidationFailRate =
       processedCount === 0 ? 0 : attributeValidationFailCount / processedCount;
+    const familyDistribution: Record<string, number> = {};
+    const familyNeedsReviewCount: Record<string, number> = {};
+    const variantFillCountByFamily: Record<string, number> = {};
+    let variantFilledCount = 0;
+
+    for (const enrichment of enrichmentMap.values()) {
+      const family = enrichment.categorySlug || "sem_categoria";
+      familyDistribution[family] = (familyDistribution[family] ?? 0) + 1;
+      if (enrichment.needsReview) {
+        familyNeedsReviewCount[family] = (familyNeedsReviewCount[family] ?? 0) + 1;
+      }
+
+      if (hasVariantValues(enrichment.attributeValues)) {
+        variantFilledCount += 1;
+        variantFillCountByFamily[family] = (variantFillCountByFamily[family] ?? 0) + 1;
+      }
+    }
+
+    const familyReviewRate: Record<string, number> = {};
+    const variantFillRateByFamily: Record<string, number> = {};
+    for (const [family, familyCount] of Object.entries(familyDistribution)) {
+      const reviewCount = familyNeedsReviewCount[family] ?? 0;
+      const variantCount = variantFillCountByFamily[family] ?? 0;
+      familyReviewRate[family] = familyCount === 0 ? 0 : reviewCount / familyCount;
+      variantFillRateByFamily[family] = familyCount === 0 ? 0 : variantCount / familyCount;
+    }
+    const variantFillRate = processedCount === 0 ? 0 : variantFilledCount / processedCount;
+
     const preQaQualityGatePass =
       autoAcceptedRate >= 0.7 &&
       fallbackCategoryRate <= 0.05 &&
@@ -792,6 +853,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       categoriesBySlug,
       qaReportFileName: qaResult.fileName,
       qaReportCsvContent: qaResult.csvContent,
+      confusionHotlistFileName,
+      confusionHotlistCsvContent: confusionHotlist.csvContent,
       categoryCount: drafts.length,
       needsReviewCount,
       autoAcceptedCount,
@@ -802,6 +865,11 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       attributeValidationFailCount,
       categoryConfidenceHistogram: categoryAssignments.confidenceHistogram,
       topConfusionAlerts: categoryAssignments.topConfusionAlerts,
+      familyDistribution,
+      familyReviewRate,
+      variantFillRate,
+      variantFillRateByFamily,
+      taxonomyVersion: taxonomy.taxonomyVersion,
       stageTimingsMs,
       openAIEnabled: usingOpenAI,
       openAIRequestStats: openAIStats,
@@ -893,9 +961,17 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
         attribute_validation_fail_count: attributeValidationFailCount,
         category_confidence_histogram: categoryAssignments.confidenceHistogram,
         top_confusion_alerts: categoryAssignments.topConfusionAlerts,
+        family_distribution: familyDistribution,
+        family_review_rate: familyReviewRate,
+        variant_fill_rate: variantFillRate,
+        variant_fill_rate_by_family: variantFillRateByFamily,
+        taxonomy_version: taxonomy.taxonomyVersion,
         qa_sampled_rows: qaResult.sampledRows,
         qa_total_rows: qaResult.totalRows,
         qa_report_path: qaResult.filePath,
+        confusion_hotlist_path: confusionHotlistPath,
+        confusion_hotlist_count: confusionHotlist.rows.length,
+        confusion_hotlist_top20: confusionHotlist.rows,
         quality_qa_sample_size: config.QUALITY_QA_SAMPLE_SIZE,
         quality_gate: {
           auto_accepted_rate_target: 0.7,

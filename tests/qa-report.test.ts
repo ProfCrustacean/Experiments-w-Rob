@@ -37,12 +37,14 @@ describe("qa report", () => {
         {
           sourceSku: "sku-1",
           title: "Caderno A4",
-          predictedCategory: "caderno-a4-pautado",
+          predictedCategory: "cadernos_blocos",
           predictedCategoryConfidence: 0.83,
           predictedCategoryMargin: 0.22,
           autoDecision: "auto",
           topConfidenceReasons: ["strong_lexical_match", "strong_semantic_match"],
           needsReview: false,
+          variantSignature: "item_subtype=caderno | format=A4 | ruling=pautado",
+          legacySplitHint: "caderno-a4-pautado",
           attributeValues: { format: "A4" },
         },
       ],
@@ -53,7 +55,66 @@ describe("qa report", () => {
     expect(content).toContain("predicted_category_margin");
     expect(content).toContain("auto_decision");
     expect(content).toContain("top_confidence_reasons");
+    expect(content).toContain("variant_signature");
+    expect(content).toContain("legacy_split_hint");
     expect(content).toContain("corrected_category");
     expect(content).toContain("corrected_attributes_json");
+  });
+
+  it("samples QA rows in a stratified way across families", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "qa-report-stratified-"));
+    const output = await writeQAReport({
+      outputDir: dir,
+      runId: "run-3",
+      sampleSize: 6,
+      rows: [
+        ...Array.from({ length: 8 }).map((_, index) => ({
+          sourceSku: `escrita-${index}`,
+          title: `Caneta ${index}`,
+          predictedCategory: "escrita",
+          predictedCategoryConfidence: 0.8,
+          predictedCategoryMargin: 0.2,
+          autoDecision: "auto" as const,
+          topConfidenceReasons: ["family_assignment"],
+          needsReview: false,
+          variantSignature: "",
+          legacySplitHint: "",
+          attributeValues: {},
+        })),
+        ...Array.from({ length: 5 }).map((_, index) => ({
+          sourceSku: `papel-${index}`,
+          title: `Resma ${index}`,
+          predictedCategory: "papel",
+          predictedCategoryConfidence: 0.8,
+          predictedCategoryMargin: 0.2,
+          autoDecision: "auto" as const,
+          topConfidenceReasons: ["family_assignment"],
+          needsReview: false,
+          variantSignature: "",
+          legacySplitHint: "",
+          attributeValues: {},
+        })),
+        ...Array.from({ length: 4 }).map((_, index) => ({
+          sourceSku: `transporte-${index}`,
+          title: `Mochila ${index}`,
+          predictedCategory: "transporte_escolar",
+          predictedCategoryConfidence: 0.8,
+          predictedCategoryMargin: 0.2,
+          autoDecision: "auto" as const,
+          topConfidenceReasons: ["family_assignment"],
+          needsReview: false,
+          variantSignature: "",
+          legacySplitHint: "",
+          attributeValues: {},
+        })),
+      ],
+    });
+
+    const csv = await readFile(output.filePath, "utf8");
+    const lines = csv.split("\n").slice(1).filter(Boolean);
+    const categories = lines.map((line) => line.split(",")[3]);
+    expect(categories).toContain("escrita");
+    expect(categories).toContain("papel");
+    expect(categories).toContain("transporte_escolar");
   });
 });
