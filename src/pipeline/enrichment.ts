@@ -23,6 +23,7 @@ const BLOCKING_CATEGORY_REASONS = new Set([
   "generic_or_fallback_category",
   "mixed_ink_signals",
   "category_contradiction",
+  "out_of_scope_category",
 ]);
 
 const taxonomy = loadTaxonomy();
@@ -196,11 +197,17 @@ function inferAttributeWithRules(
       return { value: material, confidence: material ? 0.84 : 0.1 };
     }
     case "glue_type": {
+      if (/(fita|adesiva|dupla face|rollafix|corretora|corretor)/.test(text)) {
+        return { value: null, confidence: 0.1 };
+      }
       if (/(bastao|bastão|stick|stic)/.test(text)) {
         return { value: "bastao", confidence: 0.9 };
       }
-      if (/(liquida|liquido|liquid|branca|cola universal|cola escolar|super cola)/.test(text)) {
+      if (/(liquida|liquido|liquid|branca|pva|cola escolar|super cola)/.test(text)) {
         return { value: "liquida", confidence: 0.9 };
+      }
+      if (categorySlug === "cola-bastao" && /\bcola\b/.test(text)) {
+        return { value: "bastao", confidence: 0.7 };
       }
       if (categorySlug === "cola-liquida" && /\bcola\b/.test(text)) {
         return { value: "liquida", confidence: 0.72 };
@@ -220,9 +227,6 @@ function inferAttributeWithRules(
     }
     case "has_wheels": {
       const value = detectBoolean(text, /(com rodas|rodas|trolley)/, /(sem rodas)/);
-      if (value === null && categorySlug === "mochila" && /\bmochila\b/.test(text)) {
-        return { value: false, confidence: 0.62 };
-      }
       return { value, confidence: value !== null ? 0.86 : 0.1 };
     }
     case "capacity_l": {
@@ -564,7 +568,11 @@ export function enrichProductWithSignals(
     }
 
     if (chosenValue !== null && chosenConfidence < attributeAutoMinConfidence) {
-      reasons.push(`low_attribute_confidence_${key}`);
+      if (attribute.required) {
+        reasons.push(`low_attribute_confidence_${key}`);
+      } else {
+        reasons.push(`low_optional_attribute_confidence_${key}`);
+      }
     }
 
     attributeValues[key] = chosenValue;
@@ -575,7 +583,12 @@ export function enrichProductWithSignals(
     }
   }
 
-  if (!hasAnyAttributeValue(attributeValues) && category.attributes.attributes.length > 0) {
+  const hasRequiredAttributes = category.attributes.attributes.some((attribute) => attribute.required);
+  if (
+    !hasAnyAttributeValue(attributeValues) &&
+    category.attributes.attributes.length > 0 &&
+    hasRequiredAttributes
+  ) {
     reasons.push("empty_attribute_output");
   }
 

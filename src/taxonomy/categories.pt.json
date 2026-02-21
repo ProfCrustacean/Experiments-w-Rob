@@ -310,6 +310,112 @@
       ]
     },
     {
+      "slug": "bloco-apontamentos",
+      "name_pt": "Bloco de Apontamentos",
+      "description_pt": "Blocos de apontamentos e blocos pautados para notas escolares.",
+      "synonyms": ["bloco de apontamentos", "bloco pautado", "bloco de notas"],
+      "prototype_terms": ["bloco de apontamentos a4", "bloco pautado", "bloco de notas a5"],
+      "is_fallback": false,
+      "default_attributes": [
+        { "key": "format", "label_pt": "formato", "type": "enum", "allowed_values": ["A4", "A5"], "required": false },
+        { "key": "ruling", "label_pt": "tipo_de_folha", "type": "enum", "allowed_values": ["pautado", "quadriculado", "liso"], "required": false },
+        { "key": "sheet_count", "label_pt": "numero_de_folhas", "type": "number", "required": false }
+      ]
+    },
+    {
+      "slug": "calculadora",
+      "name_pt": "Calculadora",
+      "description_pt": "Calculadoras escolares e cientificas.",
+      "synonyms": ["calculadora", "scientific calculator"],
+      "prototype_terms": ["calculadora cientifica", "calculadora escolar"],
+      "is_fallback": false,
+      "default_attributes": [
+        { "key": "scientific", "label_pt": "cientifica", "type": "boolean", "required": false },
+        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
+      ]
+    },
+    {
+      "slug": "compasso",
+      "name_pt": "Compasso",
+      "description_pt": "Compassos escolares e conjuntos de geometria.",
+      "synonyms": ["compasso", "compass"],
+      "prototype_terms": ["compasso escolar", "compasso metal", "compasso com minas"],
+      "is_fallback": false,
+      "default_attributes": [
+        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false },
+        { "key": "material", "label_pt": "material", "type": "text", "required": false }
+      ]
+    },
+    {
+      "slug": "corretor",
+      "name_pt": "Corretor",
+      "description_pt": "Corretor liquido, em caneta ou fita corretora para uso escolar.",
+      "synonyms": ["corretor", "fita corretora", "liquid paper"],
+      "prototype_terms": ["corretor escolar", "fita corretora", "caneta corretora"],
+      "is_fallback": false,
+      "default_attributes": [
+        { "key": "correction_type", "label_pt": "tipo_de_corretor", "type": "enum", "allowed_values": ["fita", "caneta", "liquido"], "required": false },
+        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
+      ]
+    },
+    {
+      "slug": "fita-adesiva",
+      "name_pt": "Fita Adesiva",
+      "description_pt": "Fitas adesivas escolares, transparentes ou dupla face.",
+      "synonyms": ["fita adesiva", "durex", "dupla face"],
+      "prototype_terms": ["fita adesiva transparente", "fita dupla face", "fita cola"],
+      "is_fallback": false,
+      "default_attributes": [
+        { "key": "tape_type", "label_pt": "tipo_de_fita", "type": "enum", "allowed_values": ["transparente", "dupla_face", "decorativa"], "required": false },
+        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
+      ]
+    },
+    {
+      "slug": "clips-papel",
+      "name_pt": "Clips de Papel",
+      "description_pt": "Clips e molas para organizacao de folhas.",
+      "synonyms": ["clips", "clipes", "molas de papel"],
+      "prototype_terms": ["clips cromados", "caixa de clips", "molas de papel"],
+      "is_fallback": false,
+      "default_attributes": [
+        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false },
+        { "key": "size", "label_pt": "tamanho", "type": "text", "required": false }
+      ]
+    },
+    {
+      "slug": "pincel-artistico",
+      "name_pt": "Pincel Artistico",
+      "description_pt": "Pinceis para pintura escolar e artistica.",
+      "synonyms": ["pinceis", "pincel", "brush set"],
+      "prototype_terms": ["conjunto de pinceis", "pinceis redondos", "pinceis planos"],
+      "is_fallback": false,
+      "default_attributes": [
+        { "key": "brush_type", "label_pt": "tipo_de_pincel", "type": "enum", "allowed_values": ["redondo", "plano", "sortido"], "required": false },
+        { "key": "pack_count", "label_pt": "quantidade_no_pack", "type": "number", "required": false }
+      ]
+    },
+    {
+      "slug": "tinta-artistica",
+      "name_pt": "Tinta Artistica",
+      "description_pt": "Tintas escolares como guache, aquarela e acrilica.",
+      "synonyms": ["guache", "aquarela", "tinta acrilica"],
+      "prototype_terms": ["guache lavavel", "aquarela 12 unidades", "tinta acrilica 75ml"],
+      "is_fallback": false,
+      "default_attributes": [
+        { "key": "paint_type", "label_pt": "tipo_de_tinta", "type": "enum", "allowed_values": ["guache", "aquarela", "acrilica"], "required": false },
+        { "key": "volume_ml", "label_pt": "volume_ml", "type": "number", "required": false }
+      ]
+    },
+    {
+      "slug": "fora-escopo-escolar",
+      "name_pt": "Fora de Escopo Escolar",
+      "description_pt": "Itens nao nucleares para lista escolar, roteados para revisao manual.",
+      "synonyms": ["fora de escopo", "nao escolar", "acessorio geral"],
+      "prototype_terms": ["auriculares wireless", "grinalda led", "bolsa telemovel", "caixa de lanche"],
+      "is_fallback": false,
+      "default_attributes": []
+    },
+    {
       "slug": "material-escolar-diverso",
       "name_pt": "Material Escolar Diverso",
       "description_pt": "Categoria de fallback para itens escolares sem classificacao confiavel.",

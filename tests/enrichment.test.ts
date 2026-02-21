@@ -258,4 +258,116 @@ describe("enrichment", () => {
     expect(colaResult.attributeValues.glue_type).toBe("liquida");
     expect(colaResult.attributeValues.volume_ml).toBe(110);
   });
+
+  it("does not force review when optional attributes are empty", async () => {
+    const result = await enrichProduct(
+      {
+        sourceSku: "sku-opt",
+        title: "Estojo Escolar Simples",
+        description: "",
+        brand: "Marca",
+        normalizedTitle: "estojo escolar simples",
+        normalizedDescription: "",
+        normalizedBrand: "marca",
+        normalizedText: "estojo escolar simples marca",
+      },
+      {
+        slug: "estojo",
+        description: "Categoria de estojos",
+        confidenceScore: 0.88,
+        autoDecision: "auto" as const,
+        confidenceReasons: ["strong_lexical_match"],
+        attributes: {
+          schema_version: "1.0" as const,
+          category_name_pt: "estojo",
+          attributes: [
+            { key: "compartment_count", label_pt: "numero_de_compartimentos", type: "number" as const, required: false },
+            { key: "material", label_pt: "material", type: "text" as const, required: false },
+          ],
+        },
+      },
+      null,
+      0.7,
+    );
+
+    expect(result.attributeValues.compartment_count).toBe(1);
+    expect(result.needsReview).toBe(false);
+    expect(result.uncertaintyReasons).not.toContain("empty_attribute_output");
+  });
+
+  it("keeps mochila without wheel signal as auto when other gating is safe", async () => {
+    const result = await enrichProduct(
+      {
+        sourceSku: "sku-mochila-sem-rodas",
+        title: "Mochila Escolar Azul 22L",
+        description: "Modelo infantil com alcas reforcadas",
+        brand: "Marca",
+        normalizedTitle: "mochila escolar azul 22l",
+        normalizedDescription: "modelo infantil com alcas reforcadas",
+        normalizedBrand: "marca",
+        normalizedText: "mochila escolar azul 22l modelo infantil com alcas reforcadas marca",
+      },
+      {
+        slug: "mochila",
+        description: "Categoria de mochilas",
+        confidenceScore: 0.9,
+        autoDecision: "auto" as const,
+        confidenceReasons: ["strong_lexical_match", "strong_semantic_match"],
+        attributes: {
+          schema_version: "1.0" as const,
+          category_name_pt: "mochila",
+          attributes: [
+            { key: "has_wheels", label_pt: "tem_rodas", type: "boolean" as const, required: false },
+            { key: "capacity_l", label_pt: "capacidade_litros", type: "number" as const, required: false },
+          ],
+        },
+      },
+      null,
+      0.7,
+    );
+
+    expect(result.attributeValues.has_wheels).toBeNull();
+    expect(result.needsReview).toBe(false);
+    expect(result.uncertaintyReasons).not.toContain("low_attribute_confidence_has_wheels");
+  });
+
+  it("does not infer glue_type from tape products", async () => {
+    const result = await enrichProduct(
+      {
+        sourceSku: "sku-fita",
+        title: "Fita Adesiva Transparente 2 unidades",
+        description: "",
+        brand: "Marca",
+        normalizedTitle: "fita adesiva transparente 2 unidades",
+        normalizedDescription: "",
+        normalizedBrand: "marca",
+        normalizedText: "fita adesiva transparente 2 unidades marca",
+      },
+      {
+        slug: "cola-liquida",
+        description: "Categoria de cola liquida",
+        confidenceScore: 0.82,
+        autoDecision: "review" as const,
+        confidenceReasons: ["category_review_gate"],
+        attributes: {
+          schema_version: "1.0" as const,
+          category_name_pt: "cola liquida",
+          attributes: [
+            {
+              key: "glue_type",
+              label_pt: "tipo_de_cola",
+              type: "enum" as const,
+              allowed_values: ["bastao", "liquida"],
+              required: false,
+            },
+          ],
+        },
+      },
+      null,
+      0.7,
+    );
+
+    expect(result.attributeValues.glue_type).toBeNull();
+    expect(result.uncertaintyReasons).not.toContain("contradiction_glue_type_liquida");
+  });
 });

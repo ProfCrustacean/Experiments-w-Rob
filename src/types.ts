@@ -200,6 +200,7 @@ export interface TaxonomyCategoryMatchRule {
   exclude_any: string[];
   strong_exclude_any: string[];
   high_risk: boolean;
+  out_of_scope?: boolean;
   auto_min_confidence?: number;
   auto_min_margin?: number;
 }
