@@ -45,6 +45,7 @@ interface CandidateScore {
   compatibility: number;
   contradictionCount: number;
   lexicalEligible: boolean;
+  includeHits: number;
   excludeHits: number;
   strongExcluded: boolean;
 }
@@ -113,7 +114,7 @@ function escapeRegex(value: string): string {
 
 function hasTerm(normalizedText: string, term: string): boolean {
   const normalizedTerm = normalizeText(term);
-  if (!normalizedTerm) {
+  if (!normalizedTerm || normalizedTerm.length < 2) {
     return false;
   }
 
@@ -131,12 +132,12 @@ function countTermHits(normalizedText: string, normalizedTitle: string, terms: s
   let hits = 0;
   for (const term of terms) {
     const normalizedTerm = normalizeText(term);
-    if (!normalizedTerm) {
+    if (!normalizedTerm || normalizedTerm.length < 2) {
       continue;
     }
 
-    if (normalizedText.includes(normalizedTerm)) {
-      hits += normalizedTitle.includes(normalizedTerm) ? 2 : 1;
+    if (hasTerm(normalizedText, normalizedTerm)) {
+      hits += hasTerm(normalizedTitle, normalizedTerm) ? 2 : 1;
     }
   }
   return hits;
@@ -323,6 +324,36 @@ function inferInkSignalEvidence(text: string): InkSignalEvidence {
     esferograficaDominant,
     ambiguousMixed: hasGel && hasEsferografica && !gelDominant && !esferograficaDominant,
   };
+}
+
+function pickFallbackRescueCandidate(ranked: CandidateScore[]): CandidateScore | null {
+  const top1 = ranked[0];
+  if (!top1 || !top1.category.is_fallback) {
+    return null;
+  }
+
+  for (const candidate of ranked) {
+    if (candidate.category.is_fallback) {
+      continue;
+    }
+
+    const hasStrongLexicalEvidence =
+      candidate.includeHits >= 2 || (candidate.includeHits >= 1 && candidate.lexical >= 0.6);
+    const hasStrongSemanticEvidence = candidate.semantic >= 0.74 && candidate.compatibility >= 0.3;
+    const rescueScoreFloor = hasStrongLexicalEvidence ? 0.34 : 0.24;
+    if (
+      (hasStrongLexicalEvidence || hasStrongSemanticEvidence) &&
+      (candidate.lexicalEligible || hasStrongSemanticEvidence) &&
+      candidate.contradictionCount === 0 &&
+      candidate.excludeHits === 0 &&
+      !candidate.strongExcluded &&
+      candidate.score >= rescueScoreFloor
+    ) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 function clampScore(value: number): number {
@@ -608,6 +639,7 @@ export async function assignCategoriesForProducts(
             compatibility: compatibilityScore,
             contradictionCount,
             lexicalEligible,
+            includeHits,
             excludeHits,
             strongExcluded,
           });
@@ -617,12 +649,19 @@ export async function assignCategoriesForProducts(
         const lexicalCandidates = nonFallbackCandidates
           .filter((candidate) => candidate.lexicalEligible && !candidate.strongExcluded)
           .sort((left, right) => right.score - left.score);
+        const semanticCandidates = nonFallbackCandidates
+          .filter((candidate) => !candidate.strongExcluded)
+          .sort((left, right) => right.score - left.score);
 
         const fallbackCandidate =
           candidateScores.find((candidate) => candidate.category.slug === taxonomy.fallbackCategory.slug) ??
           candidateScores[0];
 
         let ranked = lexicalCandidates;
+        if (ranked.length === 0) {
+          ranked = semanticCandidates.slice(0, 5);
+        }
+
         if (ranked.length === 0) {
           ranked = [fallbackCandidate];
         } else {
@@ -642,6 +681,7 @@ export async function assignCategoriesForProducts(
 
         const useLlm =
           input.llmProvider !== null &&
+          lexicalCandidates.length > 0 &&
           llmCandidates.length >= 2 &&
           shouldUseLlmDisambiguation({
             top1: top1BeforeLlm,
@@ -666,9 +706,12 @@ export async function assignCategoriesForProducts(
           }
         }
 
-        const top1 = ranked[0] ?? fallbackCandidate;
-        const top2 = ranked[1] ?? null;
+        const rescuedCandidate = pickFallbackRescueCandidate(ranked);
+        const top1 = rescuedCandidate ?? ranked[0] ?? fallbackCandidate;
+        const reRankedTop = [top1, ...ranked.filter((candidate) => candidate.category.slug !== top1.category.slug)];
+        const top2 = reRankedTop[1] ?? null;
         const margin = clampScore(top1.score - (top2?.score ?? 0));
+        const fallbackRescueApplied = Boolean(rescuedCandidate);
         const mixedInkSignals =
           inkSignals.ambiguousMixed &&
           (top1.category.slug.startsWith("caneta-") || top2?.category.slug.startsWith("caneta-") === true);
@@ -723,6 +766,9 @@ export async function assignCategoriesForProducts(
         if (isOutOfScopeCategory) {
           confidenceReasons.push("out_of_scope_category");
         }
+        if (fallbackRescueApplied) {
+          confidenceReasons.push("fallback_rescue_applied");
+        }
         if (llmReason) {
           confidenceReasons.push(llmReason);
         }
@@ -733,7 +779,8 @@ export async function assignCategoriesForProducts(
           top1.contradictionCount === 0 &&
           !mixedInkSignals &&
           !isGenericCategory &&
-          !isOutOfScopeCategory
+          !isOutOfScopeCategory &&
+          !fallbackRescueApplied
             ? "auto"
             : "review";
 

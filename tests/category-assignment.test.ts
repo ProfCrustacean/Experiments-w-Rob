@@ -3,6 +3,26 @@ import { normalizeRows } from "../src/pipeline/ingest.js";
 import { assignCategoriesForProducts } from "../src/pipeline/category-assignment.js";
 import { FallbackProvider } from "../src/services/fallback.js";
 
+class FallbackRescueEmbeddingProvider {
+  public readonly dimensions = 2;
+
+  async embedMany(texts: string[]): Promise<number[][]> {
+    return texts.map((text) => {
+      const normalized = text.toLowerCase();
+      if (normalized.includes("material escolar diverso")) {
+        return [1, 0];
+      }
+      if (normalized.includes("caneta esferografica")) {
+        return [0.6, 0.8];
+      }
+      if (normalized.includes("sem-subcategoria")) {
+        return [1, 0];
+      }
+      return [0, 1];
+    });
+  }
+}
+
 describe("category assignment", () => {
   it("avoids assigning sharpeners to lapis-cor", async () => {
     const products = normalizeRows([
@@ -234,5 +254,35 @@ describe("category assignment", () => {
     expect(assignment?.categorySlug).toBe("fora-escopo-escolar");
     expect(assignment?.autoDecision).toBe("review");
     expect(assignment?.confidenceReasons).toContain("out_of_scope_category");
+  });
+
+  it("rescues fallback predictions to a specific review category when secondary evidence is strong", async () => {
+    const products = normalizeRows([
+      {
+        sourceSku: "sku-fallback-rescue",
+        title: "Item sem-subcategoria 1.0mm preta",
+        description: "Produto de escrita",
+        brand: "Marca Gen",
+      },
+    ]);
+
+    const embeddingProvider = new FallbackRescueEmbeddingProvider();
+    const output = await assignCategoriesForProducts({
+      products,
+      embeddingProvider,
+      llmProvider: null,
+      autoMinConfidence: 0.76,
+      autoMinMargin: 0.1,
+      highRiskExtraConfidence: 0.08,
+      llmConcurrency: 1,
+      embeddingBatchSize: 8,
+      embeddingConcurrency: 2,
+    });
+
+    const assignment = output.assignmentsBySku.get("sku-fallback-rescue");
+    expect(assignment?.categorySlug).toBe("caneta-esferografica");
+    expect(assignment?.isFallbackCategory).toBe(false);
+    expect(assignment?.autoDecision).toBe("review");
+    expect(assignment?.confidenceReasons).toContain("fallback_rescue_applied");
   });
 });
