@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${SKIP_CANARY:-}" == "1" ]]; then
+  echo "[canary] skipped (SKIP_CANARY=1)"
+  exit 0
+fi
+
+echo "[canary] running npm run canary before push..."
+npm run canary

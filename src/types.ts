@@ -217,3 +217,88 @@ export interface TaxonomyAttributePolicyConfig {
   attribute_policies: Record<string, TaxonomyAttributePolicy>;
   category_attribute_overrides: Record<string, Record<string, TaxonomyAttributePolicy>>;
 }
+
+export type SelfImproveLoopType = "canary" | "full";
+
+export type SelfImproveBatchStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "completed_with_failures"
+  | "failed"
+  | "cancelled";
+
+export type SelfImproveRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "retried_succeeded"
+  | "retried_failed";
+
+export type SelfImproveAutoApplyPolicy = "if_gate_passes";
+
+export interface SelfCorrectionContext {
+  failureSummary: string;
+  lastConfusionAlerts: Array<{
+    category_slug: string;
+    affected_count: number;
+    low_margin_count: number;
+    contradiction_count: number;
+    fallback_count: number;
+  }>;
+  failedGateMetrics: string[];
+  candidateFixes: string[];
+}
+
+export type SelfImproveProposalKind =
+  | "rule_term_add"
+  | "rule_term_remove"
+  | "threshold_tune"
+  | "taxonomy_merge"
+  | "taxonomy_split"
+  | "taxonomy_move";
+
+export type SelfImproveProposalStatus = "proposed" | "applied" | "rejected" | "rolled_back";
+
+export interface SelfImproveProposalPayload {
+  target_slug: string;
+  field: "include_any" | "exclude_any" | "strong_exclude_any" | "auto_min_confidence" | "auto_min_margin";
+  action: "add" | "remove" | "set";
+  value: string | number;
+  reason: string;
+}
+
+export interface SelfImproveProposal {
+  id: string;
+  batchId: string | null;
+  runId: string | null;
+  proposalKind: SelfImproveProposalKind;
+  status: SelfImproveProposalStatus;
+  confidenceScore: number;
+  expectedImpactScore: number;
+  payload: SelfImproveProposalPayload;
+  source: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HarnessEvalResult {
+  passed: boolean;
+  metricScores: Record<string, number>;
+  failedMetrics: string[];
+  baselineRunId: string | null;
+  candidateRunId: string | null;
+}
+
+export interface AppliedChangeRecord {
+  id: string;
+  proposalId: string;
+  proposalKind: SelfImproveProposalKind;
+  status: "applied" | "rolled_back";
+  versionBefore: string;
+  versionAfter: string;
+  appliedAt: string;
+  rollbackToken: string;
+  metadata: Record<string, unknown>;
+}

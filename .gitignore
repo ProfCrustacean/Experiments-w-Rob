@@ -1,6 +1,9 @@
 node_modules
 dist
 .env
+outputs/
 outputs/*.csv
+outputs/canary_state.json
 coverage
 *.log
+.DS_Store

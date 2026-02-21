@@ -1,16 +1,38 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { getPool } from "../db/client.js";
 import type {
+  AppliedChangeRecord,
   CategoryDraft,
+  HarnessEvalResult,
   NormalizedCatalogProduct,
   PipelineRunLogRow,
   PersistedCategory,
   PersistedProduct,
   ProductEnrichment,
   RunArtifactFormat,
+  SelfImproveProposal,
+  SelfImproveProposalKind,
+  SelfImproveProposalPayload,
+  SelfImproveProposalStatus,
+  SelfCorrectionContext,
+  SelfImproveAutoApplyPolicy,
+  SelfImproveBatchStatus,
+  SelfImproveLoopType,
+  SelfImproveRunStatus,
 } from "../types.js";
 import { vectorToSqlLiteral } from "./embedding.js";
 import { artifactKeyToFormat, type RunArtifactKey } from "./run-artifacts.js";
+import {
+  applyProposalPayloadToRules,
+  dedupeTerms,
+  readCategoryRulesFile,
+  writeCategoryRulesFile,
+  type CategoryRuleFile,
+} from "./rule-patch.js";
 
 export interface StoredRunArtifact {
   key: string;
@@ -36,6 +58,142 @@ export interface PipelineRunListItem {
   finishedAt: string | null;
   stats: Record<string, unknown>;
 }
+
+export interface SelfImprovementBatchSummary {
+  total_loops?: number;
+  completed_loops?: number;
+  failed_loops?: number;
+  running_sequence?: number | null;
+  success_count?: number;
+  retried_success_count?: number;
+  final_failed_count?: number;
+  gate_pass_rate?: number;
+  auto_applied_updates_count?: number;
+  [key: string]: unknown;
+}
+
+export interface SelfImprovementBatchListItem {
+  id: string;
+  requestedCount: number;
+  loopType: SelfImproveLoopType;
+  status: SelfImproveBatchStatus;
+  maxLoopsCap: number;
+  retryLimit: number;
+  autoApplyPolicy: SelfImproveAutoApplyPolicy;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  summary: SelfImprovementBatchSummary;
+}
+
+export interface SelfImprovementRunItem {
+  id: string;
+  batchId: string;
+  sequenceNo: number;
+  attemptNo: number;
+  status: SelfImproveRunStatus;
+  pipelineRunId: string | null;
+  error: Record<string, unknown>;
+  selfCorrectionContext: Record<string, unknown>;
+  gateResult: Record<string, unknown>;
+  learningResult: Record<string, unknown>;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface SelfImprovementBatchDetails extends SelfImprovementBatchListItem {
+  runs: SelfImprovementRunItem[];
+}
+
+interface PipelineRunQueryRow {
+  id: string;
+  store_id: string;
+  input_file_name: string;
+  run_label: string | null;
+  status: string;
+  started_at: Date | string;
+  finished_at: Date | string | null;
+  stats_json: Record<string, unknown>;
+}
+
+interface SelfImprovementBatchQueryRow {
+  id: string;
+  requested_count: number;
+  loop_type: SelfImproveLoopType;
+  status: SelfImproveBatchStatus;
+  max_loops_cap: number;
+  retry_limit: number;
+  auto_apply_policy: SelfImproveAutoApplyPolicy;
+  created_at: Date | string;
+  started_at: Date | string | null;
+  finished_at: Date | string | null;
+  summary_jsonb: Record<string, unknown>;
+}
+
+interface SelfImprovementRunQueryRow {
+  id: string;
+  batch_id: string;
+  sequence_no: number;
+  attempt_no: number;
+  status: SelfImproveRunStatus;
+  pipeline_run_id: string | null;
+  error_jsonb: Record<string, unknown>;
+  self_correction_context_jsonb: Record<string, unknown>;
+  gate_result_jsonb: Record<string, unknown>;
+  learning_result_jsonb: Record<string, unknown>;
+  started_at: Date | string | null;
+  finished_at: Date | string | null;
+}
+
+interface SelfImproveProposalQueryRow {
+  id: string;
+  batch_id: string | null;
+  run_id: string | null;
+  proposal_kind: SelfImproveProposalKind;
+  status: SelfImproveProposalStatus;
+  confidence_score: number;
+  expected_impact_score: number;
+  payload_jsonb: Record<string, unknown>;
+  source_jsonb: Record<string, unknown>;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+interface AppliedChangeQueryRow {
+  id: string;
+  proposal_id: string;
+  proposal_kind: SelfImproveProposalKind;
+  status: "applied" | "rolled_back";
+  version_before: string;
+  version_after: string;
+  rollback_token: string;
+  metadata_jsonb: Record<string, unknown>;
+  applied_at: Date | string;
+}
+
+interface BenchmarkSnapshotQueryRow {
+  id: string;
+  store_id: string;
+  source_jsonb: Record<string, unknown>;
+  row_count: number;
+  sample_size: number;
+  dataset_hash: string;
+  created_at: Date | string;
+}
+
+export interface BenchmarkSnapshot {
+  id: string;
+  storeId: string;
+  source: Record<string, unknown>;
+  rowCount: number;
+  sampleSize: number;
+  datasetHash: string;
+  createdAt: string;
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const CATEGORY_RULES_FILE_PATH = path.resolve(__dirname, "../taxonomy/category_match_rules.pt.json");
 
 function toIsoString(value: Date | string): string {
   const date = value instanceof Date ? value : new Date(value);
@@ -283,16 +441,7 @@ export async function listPipelineRunsByStore(input: {
   limit: number;
 }): Promise<PipelineRunListItem[]> {
   const pool = getPool();
-  const result = await pool.query<{
-    id: string;
-    store_id: string;
-    input_file_name: string;
-    run_label: string | null;
-    status: string;
-    started_at: Date | string;
-    finished_at: Date | string | null;
-    stats_json: Record<string, unknown>;
-  }>(
+  const result = await pool.query<PipelineRunQueryRow>(
     `
       SELECT
         id,
@@ -311,7 +460,65 @@ export async function listPipelineRunsByStore(input: {
     [input.storeId, input.limit],
   );
 
-  return result.rows.map((row) => ({
+  return result.rows.map(mapPipelineRunRow);
+}
+
+export async function getPipelineRunById(runId: string): Promise<PipelineRunListItem | null> {
+  const pool = getPool();
+  const result = await pool.query<PipelineRunQueryRow>(
+    `
+      SELECT
+        id,
+        store_id,
+        input_file_name,
+        run_label,
+        status,
+        started_at,
+        finished_at,
+        stats_json
+      FROM pipeline_runs
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [runId],
+  );
+
+  if (result.rowCount === 0) {
+    return null;
+  }
+
+  return mapPipelineRunRow(result.rows[0]);
+}
+
+
+export {
+  enqueueSelfImprovementBatch,
+  listSelfImprovementBatches,
+  getSelfImprovementBatchDetails,
+  cancelSelfImprovementBatch,
+  claimNextQueuedSelfImprovementBatch,
+  startSelfImprovementRunAttempt,
+  finalizeSelfImprovementRunAttempt,
+  finalizeSelfImprovementBatch,
+  updateSelfImprovementBatchSummary,
+  insertLearningProposals,
+  listPendingLearningProposals,
+  markProposalApplied,
+  recordHarnessRun,
+  createRollbackEvent,
+  createBenchmarkSnapshot,
+  getLatestBenchmarkSnapshot,
+  getBenchmarkSnapshotById,
+  applyTaxonomyAndRulePatchTransactional,
+  recordAppliedChangeWithoutPatch,
+  rollbackAppliedChangeTransactional,
+  getAppliedChangeById,
+  listRecentAppliedChanges,
+  listRecentHarnessRuns,
+} from "./persist-self-improvement.js";
+
+function mapPipelineRunRow(row: PipelineRunQueryRow): PipelineRunListItem {
+  return {
     runId: row.id,
     storeId: row.store_id,
     inputFileName: row.input_file_name,
@@ -320,7 +527,7 @@ export async function listPipelineRunsByStore(input: {
     startedAt: toIsoString(row.started_at),
     finishedAt: row.finished_at ? toIsoString(row.finished_at) : null,
     stats: row.stats_json ?? {},
-  }));
+  };
 }
 
 function mapRunLogRow(row: {

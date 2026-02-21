@@ -4,6 +4,8 @@ import { z } from "zod";
 const envSchema = z.object({
   OPENAI_API_KEY: z.string().min(1).optional(),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  CATALOG_INPUT_PATH: z.string().min(1).optional(),
+  STORE_ID: z.string().min(1).optional(),
   LLM_MODEL: z.string().default("gpt-4.1-mini"),
   EMBEDDING_MODEL: z.string().default("text-embedding-3-large"),
   CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.7),
@@ -31,6 +33,25 @@ const envSchema = z.object({
   TRACE_FLUSH_BATCH_SIZE: z.coerce.number().int().positive().default(25),
   STALE_RUN_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(180),
   OUTPUT_DIR: z.string().min(1).default("outputs"),
+  CANARY_SAMPLE_SIZE: z.coerce.number().int().positive().default(350),
+  CANARY_FIXED_RATIO: z.coerce.number().min(0).max(1).default(0.3),
+  CANARY_RANDOM_SEED: z.string().min(1).default("canary-v1"),
+  CANARY_AUTO_ACCEPT_THRESHOLD: z.coerce.number().min(0).max(1).default(0.8),
+  CANARY_SUBSET_PATH: z.string().min(1).default("outputs/canary_input.csv"),
+  CANARY_STATE_PATH: z.string().min(1).default("outputs/canary_state.json"),
+  SELF_IMPROVE_MAX_LOOPS: z.coerce.number().int().positive().default(10),
+  SELF_IMPROVE_RETRY_LIMIT: z.coerce.number().int().nonnegative().default(1),
+  SELF_IMPROVE_AUTO_APPLY_POLICY: z.enum(["if_gate_passes"]).default("if_gate_passes"),
+  SELF_IMPROVE_WORKER_POLL_MS: z.coerce.number().int().positive().default(5000),
+  SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP: z.coerce.number().int().nonnegative().default(2),
+  SELF_IMPROVE_GATE_MIN_SAMPLE_SIZE: z.coerce.number().int().positive().default(200),
+  SELF_IMPROVE_POST_APPLY_WATCH_LOOPS: z.coerce.number().int().positive().default(2),
+  SELF_IMPROVE_ROLLBACK_ON_DEGRADE: z.coerce.boolean().default(true),
+  HARNESS_MIN_L1_DELTA: z.coerce.number().default(0),
+  HARNESS_MIN_L2_DELTA: z.coerce.number().default(0),
+  HARNESS_MIN_L3_DELTA: z.coerce.number().default(0),
+  HARNESS_MAX_FALLBACK_RATE: z.coerce.number().min(0).max(1).default(0.06),
+  HARNESS_MAX_NEEDS_REVIEW_RATE: z.coerce.number().min(0).max(1).default(0.35),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
@@ -65,6 +86,28 @@ export function getConfig(): AppConfig {
   if (parsed.data.CATEGORY_AUTO_MIN_MARGIN >= parsed.data.CATEGORY_AUTO_MIN_CONFIDENCE) {
     throw new Error(
       `Invalid environment configuration: CATEGORY_AUTO_MIN_MARGIN (${parsed.data.CATEGORY_AUTO_MIN_MARGIN}) should be lower than CATEGORY_AUTO_MIN_CONFIDENCE (${parsed.data.CATEGORY_AUTO_MIN_CONFIDENCE})`,
+    );
+  }
+
+  const canaryFixedTarget = Math.round(parsed.data.CANARY_SAMPLE_SIZE * parsed.data.CANARY_FIXED_RATIO);
+  if (canaryFixedTarget <= 0) {
+    throw new Error(
+      `Invalid environment configuration: CANARY_FIXED_RATIO (${parsed.data.CANARY_FIXED_RATIO}) and CANARY_SAMPLE_SIZE (${parsed.data.CANARY_SAMPLE_SIZE}) must produce at least one fixed canary product.`,
+    );
+  }
+
+  if (parsed.data.SELF_IMPROVE_MAX_LOOPS > 10) {
+    throw new Error(
+      `Invalid environment configuration: SELF_IMPROVE_MAX_LOOPS (${parsed.data.SELF_IMPROVE_MAX_LOOPS}) must be <= 10.`,
+    );
+  }
+
+  if (
+    parsed.data.SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP >
+    parsed.data.SELF_IMPROVE_MAX_LOOPS
+  ) {
+    throw new Error(
+      `Invalid environment configuration: SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP (${parsed.data.SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP}) must be <= SELF_IMPROVE_MAX_LOOPS (${parsed.data.SELF_IMPROVE_MAX_LOOPS}).`,
     );
   }
 

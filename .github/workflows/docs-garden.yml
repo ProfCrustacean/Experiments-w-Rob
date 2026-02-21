@@ -1,0 +1,107 @@
+name: Docs Garden
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 14 * * *"
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  docs-garden:
+    runs-on: ubuntu-latest
+    env:
+      DOCS_OWNER: ${{ vars.DOCS_OWNER }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Refresh quality scoreboard
+        run: npm run docs:scoreboard
+
+      - name: Run docs check
+        id: docs_check
+        continue-on-error: true
+        run: npm run docs:check
+
+      - name: Detect scoreboard changes
+        id: scoreboard_changes
+        run: |
+          if git diff --quiet -- docs/quality-scoreboard.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit scoreboard update
+        if: steps.scoreboard_changes.outputs.changed == 'true' && steps.docs_check.outcome == 'success'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/quality-scoreboard.md
+          git commit -m "chore(docs): refresh quality scoreboard"
+          git push
+
+      - name: Upload docs report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-health-report
+          path: outputs/docs_health_report.md
+          if-no-files-found: warn
+
+      - name: Open tracking issue on failure
+        if: steps.docs_check.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = process.env.DOCS_OWNER || null;
+            const title = "Docs debt: docs checks failing";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              "Automated docs-garden run detected documentation drift.",
+              "",
+              `Run: ${runUrl}`,
+              "",
+              "Please run `npm run docs:check` locally and update the docs/debt items.",
+            ].join("\n");
+
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              per_page: 100,
+            });
+
+            const existing = issues.find((issue) => issue.title === title);
+            if (!existing) {
+              const payload = {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["documentation", "debt"],
+              };
+
+              if (owner && owner.length > 0) {
+                payload.assignees = [owner];
+              }
+
+              await github.rest.issues.create(payload);
+            }
+
+      - name: Fail job when docs check fails
+        if: steps.docs_check.outcome == 'failure'
+        run: exit 1
