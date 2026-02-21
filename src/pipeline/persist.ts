@@ -497,6 +497,7 @@ export {
   getSelfImprovementBatchDetails,
   cancelSelfImprovementBatch,
   claimNextQueuedSelfImprovementBatch,
+  recoverStaleSelfImprovementBatches,
   startSelfImprovementRunAttempt,
   finalizeSelfImprovementRunAttempt,
   finalizeSelfImprovementBatch,
@@ -785,20 +786,99 @@ export async function upsertProducts(input: {
   products: NormalizedCatalogProduct[];
   enrichments: Map<string, ProductEnrichment>;
   categoriesBySlug: Map<string, PersistedCategory>;
+  queryTimeoutMs?: number;
+  batchSize?: number;
+  stageTimeoutMs?: number;
+  timeoutStageName?: string;
+  onProgress?: (progress: { processed: number; total: number }) => void;
 }): Promise<Map<string, PersistedProduct>> {
   const pool = getPool();
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
+    if (input.queryTimeoutMs) {
+      await client.query(`SET LOCAL statement_timeout = '${input.queryTimeoutMs}ms'`);
+      await client.query(`SET LOCAL lock_timeout = '${Math.min(input.queryTimeoutMs, 5000)}ms'`);
+    }
 
     const bySku = new Map<string, PersistedProduct>();
+    const total = input.products.length;
+    let processed = 0;
+    const batchSize = Math.max(1, input.batchSize ?? 50);
+    const stageStartedAt = Date.now();
+    let nextProgressMilestone = total > 0 ? 1 : 0;
 
-    for (const product of input.products) {
-      const enrichment = input.enrichments.get(product.sourceSku);
-      const category = enrichment
-        ? input.categoriesBySlug.get(enrichment.categorySlug) ?? null
-        : null;
+    const emitProgress = (currentProcessed: number) => {
+      if (!input.onProgress || total === 0) {
+        return;
+      }
+
+      while (nextProgressMilestone > 0 && nextProgressMilestone <= currentProcessed) {
+        input.onProgress({
+          processed: nextProgressMilestone,
+          total,
+        });
+
+        if (nextProgressMilestone === 1) {
+          nextProgressMilestone = 50;
+          continue;
+        }
+
+        nextProgressMilestone += 50;
+      }
+
+      if (currentProcessed === total && (nextProgressMilestone === 0 || nextProgressMilestone > total)) {
+        if (total > 1 && (total % 50 !== 0)) {
+          input.onProgress({
+            processed: total,
+            total,
+          });
+        }
+      }
+    };
+
+    for (let index = 0; index < input.products.length; index += batchSize) {
+      if (input.stageTimeoutMs && Date.now() - stageStartedAt >= input.stageTimeoutMs) {
+        throw new Error(
+          `Stage '${input.timeoutStageName ?? "product_persist.products_upsert"}' exceeded timeout (${input.stageTimeoutMs}ms).`,
+        );
+      }
+
+      const batch = input.products.slice(index, index + batchSize);
+      const values: unknown[] = [];
+      const placeholders: string[] = [];
+      let position = 1;
+
+      for (const product of batch) {
+        const enrichment = input.enrichments.get(product.sourceSku);
+        const category = enrichment
+          ? input.categoriesBySlug.get(enrichment.categorySlug) ?? null
+          : null;
+
+        values.push(
+          input.storeId,
+          product.sourceSku,
+          product.title,
+          product.description ?? null,
+          product.brand ?? null,
+          product.price ?? null,
+          product.availability ?? null,
+          product.url ?? null,
+          product.imageUrl ?? null,
+          category?.id ?? null,
+          enrichment?.categoryConfidence ?? 0,
+          JSON.stringify(enrichment?.attributeValues ?? {}),
+          JSON.stringify(enrichment?.attributeConfidence ?? {}),
+          enrichment?.needsReview ?? true,
+          input.runId,
+        );
+
+        placeholders.push(
+          `($${position},$${position + 1},$${position + 2},$${position + 3},$${position + 4},$${position + 5},$${position + 6},$${position + 7},$${position + 8},$${position + 9},$${position + 10},$${position + 11}::jsonb,$${position + 12}::jsonb,$${position + 13},$${position + 14})`,
+        );
+        position += 15;
+      }
 
       const result = await client.query<PersistedProduct>(
         `
@@ -819,9 +899,7 @@ export async function upsertProducts(input: {
             needs_review,
             run_id
           )
-          VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$15
-          )
+          VALUES ${placeholders.join(", ")}
           ON CONFLICT (store_id, source_sku)
           DO UPDATE SET
             title = EXCLUDED.title,
@@ -840,26 +918,20 @@ export async function upsertProducts(input: {
             updated_at = NOW()
           RETURNING id, source_sku, title, category_id, category_confidence, needs_review, attribute_values_jsonb
         `,
-        [
-          input.storeId,
-          product.sourceSku,
-          product.title,
-          product.description ?? null,
-          product.brand ?? null,
-          product.price ?? null,
-          product.availability ?? null,
-          product.url ?? null,
-          product.imageUrl ?? null,
-          category?.id ?? null,
-          enrichment?.categoryConfidence ?? 0,
-          JSON.stringify(enrichment?.attributeValues ?? {}),
-          JSON.stringify(enrichment?.attributeConfidence ?? {}),
-          enrichment?.needsReview ?? true,
-          input.runId,
-        ],
+        values,
       );
 
-      bySku.set(product.sourceSku, result.rows[0]);
+      for (const row of result.rows) {
+        bySku.set(row.source_sku, row);
+      }
+
+      processed += batch.length;
+      if (input.stageTimeoutMs && Date.now() - stageStartedAt >= input.stageTimeoutMs && processed < total) {
+        throw new Error(
+          `Stage '${input.timeoutStageName ?? "product_persist.products_upsert"}' exceeded timeout (${input.stageTimeoutMs}ms).`,
+        );
+      }
+      emitProgress(processed);
     }
 
     await client.query("COMMIT");
@@ -872,29 +944,90 @@ export async function upsertProducts(input: {
   }
 }
 
+export interface UpsertProductVectorsResult {
+  totalRows: number;
+  totalBatches: number;
+}
+
 export async function upsertProductVectors(input: {
   productBySku: Map<string, PersistedProduct>;
   vectorsBySku: Map<string, number[]>;
   embeddedTextBySku: Map<string, string>;
   embeddingModel: string;
-}): Promise<void> {
+  queryTimeoutMs: number;
+  batchSize: number;
+  stageTimeoutMs?: number;
+  timeoutStageName?: string;
+  onBatchProgress?: (progress: {
+    processedBatches: number;
+    totalBatches: number;
+    processedRows: number;
+    totalRows: number;
+  }) => void;
+}): Promise<UpsertProductVectorsResult> {
   const pool = getPool();
   const client = await pool.connect();
+  const rows: Array<{
+    productId: string;
+    vectorLiteral: string;
+    embeddedText: string;
+  }> = [];
+
+  for (const [sku, persistedProduct] of input.productBySku.entries()) {
+    const vector = input.vectorsBySku.get(sku);
+    const text = input.embeddedTextBySku.get(sku);
+    if (!vector || !text) {
+      continue;
+    }
+
+    rows.push({
+      productId: persistedProduct.id,
+      vectorLiteral: vectorToSqlLiteral(vector),
+      embeddedText: text,
+    });
+  }
+
+  if (rows.length === 0) {
+    client.release();
+    return {
+      totalRows: 0,
+      totalBatches: 0,
+    };
+  }
+
+  const totalRows = rows.length;
+  const totalBatches = Math.ceil(totalRows / Math.max(1, input.batchSize));
+  let processedRows = 0;
+  let processedBatches = 0;
+  const stageStartedAt = Date.now();
 
   try {
-    await client.query("BEGIN");
+    await client.query(`SET statement_timeout = '${input.queryTimeoutMs}ms'`);
+    await client.query(`SET lock_timeout = '${Math.min(input.queryTimeoutMs, 5000)}ms'`);
 
-    for (const [sku, persistedProduct] of input.productBySku.entries()) {
-      const vector = input.vectorsBySku.get(sku);
-      const text = input.embeddedTextBySku.get(sku);
-      if (!vector || !text) {
-        continue;
+    const batchSize = Math.max(1, input.batchSize);
+    for (let index = 0; index < rows.length; index += batchSize) {
+      if (input.stageTimeoutMs && Date.now() - stageStartedAt >= input.stageTimeoutMs) {
+        throw new Error(
+          `Stage '${input.timeoutStageName ?? "product_persist.vectors_upsert"}' exceeded timeout (${input.stageTimeoutMs}ms).`,
+        );
+      }
+
+      const batch = rows.slice(index, index + batchSize);
+      const values: unknown[] = [];
+      const placeholders: string[] = [];
+      let position = 1;
+
+      for (const row of batch) {
+        values.push(row.productId, row.vectorLiteral, input.embeddingModel, row.embeddedText);
+        placeholders.push(`($${position}, $${position + 1}::vector, $${position + 2}, $${position + 3})`);
+        position += 4;
       }
 
       await client.query(
         `
           INSERT INTO product_vectors (product_id, embedding, embedding_model, embedded_text)
-          VALUES ($1, $2::vector, $3, $4)
+          VALUES ${placeholders.join(", ")}
           ON CONFLICT (product_id)
           DO UPDATE SET
             embedding = EXCLUDED.embedding,
@@ -902,15 +1035,34 @@ export async function upsertProductVectors(input: {
             embedded_text = EXCLUDED.embedded_text,
             updated_at = NOW()
         `,
-        [persistedProduct.id, vectorToSqlLiteral(vector), input.embeddingModel, text],
+        values,
       );
-    }
 
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
+      processedRows += batch.length;
+      processedBatches += 1;
+      if (input.stageTimeoutMs && Date.now() - stageStartedAt >= input.stageTimeoutMs && processedRows < totalRows) {
+        throw new Error(
+          `Stage '${input.timeoutStageName ?? "product_persist.vectors_upsert"}' exceeded timeout (${input.stageTimeoutMs}ms).`,
+        );
+      }
+      input.onBatchProgress?.({
+        processedBatches,
+        totalBatches,
+        processedRows,
+        totalRows,
+      });
+    }
+    return {
+      totalRows,
+      totalBatches,
+    };
   } finally {
+    try {
+      await client.query("SET statement_timeout = DEFAULT");
+      await client.query("SET lock_timeout = DEFAULT");
+    } catch {
+      // ignore cleanup failures on release path
+    }
     client.release();
   }
 }

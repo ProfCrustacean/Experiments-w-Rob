@@ -52,6 +52,8 @@ const disambiguationSchema = z.object({
 });
 
 const MAX_EMBEDDING_INPUT_CHARS = 6000;
+const TELEMETRY_PREVIEW_ITEMS = 3;
+const TELEMETRY_PREVIEW_CHARS = 240;
 
 interface OpenAIProviderOptions {
   apiKey: string;
@@ -175,6 +177,70 @@ function sanitizeEmbeddingInput(text: string): string {
   return sanitized.slice(0, MAX_EMBEDDING_INPUT_CHARS);
 }
 
+function summarizeString(value: string): string {
+  if (value.length <= TELEMETRY_PREVIEW_CHARS) {
+    return value;
+  }
+  return `${value.slice(0, TELEMETRY_PREVIEW_CHARS)}…`;
+}
+
+function summarizeRequestBody(body: Record<string, unknown>): Record<string, unknown> {
+  const summary: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(body)) {
+    if (typeof value === "string") {
+      summary[key] = summarizeString(value);
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      if (value.every((entry) => typeof entry === "string")) {
+        const asStrings = value as string[];
+        summary[`${key}_count`] = asStrings.length;
+        summary[`${key}_total_chars`] = asStrings.reduce((total, current) => total + current.length, 0);
+        summary[`${key}_preview`] = asStrings
+          .slice(0, TELEMETRY_PREVIEW_ITEMS)
+          .map((entry) => summarizeString(entry));
+      } else {
+        summary[`${key}_count`] = value.length;
+        summary[`${key}_preview`] = value.slice(0, TELEMETRY_PREVIEW_ITEMS);
+      }
+      continue;
+    }
+
+    if (typeof value === "object" && value !== null) {
+      summary[key] = value;
+      continue;
+    }
+
+    summary[key] = value;
+  }
+
+  return summary;
+}
+
+function summarizeChatResponse(response: {
+  id?: string;
+  model?: string;
+  usage?: unknown;
+  choices?: Array<{
+    finish_reason?: string | null;
+    message?: {
+      content?: string | null;
+    };
+  }>;
+}): Record<string, unknown> {
+  const firstChoice = response.choices?.[0];
+  return {
+    id: response.id ?? null,
+    model: response.model ?? null,
+    usage: response.usage ?? null,
+    choice_count: response.choices?.length ?? 0,
+    first_finish_reason: firstChoice?.finish_reason ?? null,
+    first_content_preview: summarizeString(firstChoice?.message?.content ?? ""),
+  };
+}
+
 export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
   public readonly dimensions: number;
 
@@ -255,7 +321,7 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
       payload: {
         call_kind: input.callKind,
         total_attempts: totalAttempts,
-        request_body: input.requestBody,
+        request_body: summarizeRequestBody(input.requestBody),
       },
     });
 
@@ -442,8 +508,16 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
       callKind: "category_profile",
       requestBody,
       operation: () => this.client.chat.completions.create(requestBody),
-      responsePayloadFactory: (chatResponse) => ({
-        response_body: chatResponse,
+      responsePayloadFactory: (chatResponse: {
+        id?: string;
+        model?: string;
+        usage?: unknown;
+        choices?: Array<{
+          finish_reason?: string | null;
+          message?: { content?: string | null };
+        }>;
+      }) => ({
+        response_metadata: summarizeChatResponse(chatResponse),
       }),
     });
 
@@ -524,8 +598,16 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
       callKind: "attribute_batch",
       requestBody,
       operation: () => this.client.chat.completions.create(requestBody),
-      responsePayloadFactory: (chatResponse) => ({
-        response_body: chatResponse,
+      responsePayloadFactory: (chatResponse: {
+        id?: string;
+        model?: string;
+        usage?: unknown;
+        choices?: Array<{
+          finish_reason?: string | null;
+          message?: { content?: string | null };
+        }>;
+      }) => ({
+        response_metadata: summarizeChatResponse(chatResponse),
       }),
     });
 
@@ -612,8 +694,16 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
       callKind: "category_disambiguation",
       requestBody,
       operation: () => this.client.chat.completions.create(requestBody),
-      responsePayloadFactory: (chatResponse) => ({
-        response_body: chatResponse,
+      responsePayloadFactory: (chatResponse: {
+        id?: string;
+        model?: string;
+        usage?: unknown;
+        choices?: Array<{
+          finish_reason?: string | null;
+          message?: { content?: string | null };
+        }>;
+      }) => ({
+        response_metadata: summarizeChatResponse(chatResponse),
       }),
     });
 

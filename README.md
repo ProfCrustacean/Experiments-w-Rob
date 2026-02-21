@@ -69,10 +69,13 @@ Self-improvement controls:
 - `SELF_IMPROVE_RETRY_LIMIT` (default `1`)
 - `SELF_IMPROVE_AUTO_APPLY_POLICY` (default `if_gate_passes`)
 - `SELF_IMPROVE_WORKER_POLL_MS` (default `5000`)
+- `SELF_IMPROVE_STALE_RUN_TIMEOUT_MINUTES` (default `30`, auto-recovers stale `running` attempts/batches)
 - `SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP` (default `2`)
 - `SELF_IMPROVE_GATE_MIN_SAMPLE_SIZE` (default `200`)
 - `SELF_IMPROVE_POST_APPLY_WATCH_LOOPS` (default `2`)
 - `SELF_IMPROVE_ROLLBACK_ON_DEGRADE` (default `true`)
+- `SELF_IMPROVE_CANARY_RETRY_DEGRADE_ENABLED` (default `true`)
+- `SELF_IMPROVE_CANARY_RETRY_MIN_PROPOSAL_CONFIDENCE` (default `0.75`)
 
 Harness thresholds:
 
@@ -87,7 +90,10 @@ Report retention:
 - `ARTIFACT_RETENTION_HOURS` (default `24`)
 - `TRACE_RETENTION_HOURS` (default `24`)
 - `TRACE_FLUSH_BATCH_SIZE` (default `25`)
-- `STALE_RUN_TIMEOUT_MINUTES` (default `180`, auto-marks abandoned `running` runs as `failed`)
+- `STALE_RUN_TIMEOUT_MINUTES` (default `180`, auto-marks abandoned `running` `pipeline_runs` as `failed`)
+- `PRODUCT_PERSIST_STAGE_TIMEOUT_MS` (default `60000`, fail-fast guard for product persistence stage)
+- `PRODUCT_VECTOR_QUERY_TIMEOUT_MS` (default `20000`, per-query DB timeout for vector writes)
+- `PRODUCT_VECTOR_BATCH_SIZE` (default `100`)
 
 ## Commands
 
@@ -139,6 +145,10 @@ Run one worker cycle (process one queued batch, else idle exit):
 npm run self-improve:worker -- --once
 ```
 
+Each worker cycle also performs stale recovery for:
+- self-improvement attempts/batches (`SELF_IMPROVE_STALE_RUN_TIMEOUT_MINUTES`)
+- pipeline runs for the configured store (`STALE_RUN_TIMEOUT_MINUTES`)
+
 Run worker continuously:
 
 ```bash
@@ -169,6 +179,8 @@ Evaluate a run against harness thresholds:
 ```bash
 npm run harness:eval -- --store continente --candidate-run-id <runId>
 ```
+
+`harness:eval` now auto-refreshes stale/undersized benchmark snapshots and auto-top-ups sample coverage to the configured minimum, so manual benchmark babysitting is not required.
 
 Generate learning proposals for a run/batch:
 
@@ -218,9 +230,10 @@ Validation rules:
 Self-improvement policy (current defaults):
 
 - Execution mode: queued async worker
-- Per-batch retry: one retry per failed loop
+- Per-batch retry: one retry for runtime/system failures only
 - Auto-apply policy: apply only when gates pass
 - Structural learning apply cap: max `2` structural changes per loop
+- Canary retry degrade mode: on canary retries, disable structural proposals and require higher proposal confidence
 - Post-apply safety: monitor next `2` loops and rollback on degrade when enabled
 
 Canary behavior:

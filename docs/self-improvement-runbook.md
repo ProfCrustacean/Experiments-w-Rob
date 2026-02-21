@@ -6,7 +6,12 @@ This runbook is for operating the self-improvement loop with minimal engineering
 
 A self-improvement batch runs multiple loop attempts (`canary` or `full`), evaluates quality gates, proposes changes, and only auto-applies safe changes when gates pass.
 
-Each loop can retry once if it fails.
+Each loop retries once only for runtime/system failures.
+Gate failures are terminal for that loop (no retry).
+On canary retries, degrade mode is enabled automatically (higher proposal-confidence floor and no structural proposals).
+If a worker is interrupted, stale `running` attempts are auto-recovered and the batch is requeued automatically.
+The worker also recovers stale `pipeline_runs` rows for the configured store, so interrupted runs do not stay stuck in `running`.
+Harness benchmarking is auto-maintained: undersized snapshots are rebuilt and topped up automatically to the configured minimum sample target.
 
 ## Fast start
 
@@ -70,8 +75,10 @@ Main fields returned by `self-improve:status`:
 
 Current default policy:
 
+- Retry only runtime/system failures (single retry limit)
 - Auto-apply only when gates pass
 - Max `2` structural changes per loop
+- Canary retry degrade mode: structural proposals disabled and higher proposal-confidence floor
 - Monitor next `2` loops after apply
 - Roll back if post-apply quality degrades (when enabled)
 
@@ -80,9 +87,17 @@ Config keys controlling this:
 - `SELF_IMPROVE_MAX_LOOPS`
 - `SELF_IMPROVE_RETRY_LIMIT`
 - `SELF_IMPROVE_AUTO_APPLY_POLICY`
+- `SELF_IMPROVE_WORKER_POLL_MS`
+- `SELF_IMPROVE_STALE_RUN_TIMEOUT_MINUTES`
+- `STALE_RUN_TIMEOUT_MINUTES`
+- `PRODUCT_PERSIST_STAGE_TIMEOUT_MS`
+- `PRODUCT_VECTOR_QUERY_TIMEOUT_MS`
+- `PRODUCT_VECTOR_BATCH_SIZE`
 - `SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP`
 - `SELF_IMPROVE_POST_APPLY_WATCH_LOOPS`
 - `SELF_IMPROVE_ROLLBACK_ON_DEGRADE`
+- `SELF_IMPROVE_CANARY_RETRY_DEGRADE_ENABLED`
+- `SELF_IMPROVE_CANARY_RETRY_MIN_PROPOSAL_CONFIDENCE`
 
 ## Manual controls
 
@@ -113,4 +128,3 @@ Required GitHub settings:
 - Secret: `DATABASE_URL`
 - Variable: `STORE_ID`
 - Optional variable: `HARNESS_CANDIDATE_RUN_ID`
-

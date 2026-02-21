@@ -43,6 +43,7 @@ interface RequiredPipelineEnv {
 export interface LoopAttemptResult {
   runId: string;
   passed: boolean;
+  retryableFailure: boolean;
   qualityGate: {
     passed: boolean;
     failedMetrics: string[];
@@ -58,6 +59,10 @@ export interface LoopAttemptResult {
 function asNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function clampConfidence(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }
 
 function parseAlerts(value: unknown): ParsedAlert[] {
@@ -278,6 +283,14 @@ export async function runLoopAttempt(input: {
 }): Promise<LoopAttemptResult> {
   const config = getConfig();
   const env = getRequiredPipelineEnv(config);
+  const canaryRetryDegradeMode =
+    config.SELF_IMPROVE_CANARY_RETRY_DEGRADE_ENABLED &&
+    input.batch.loopType === "canary" &&
+    input.attemptNo > 1;
+  const proposalMinConfidence = canaryRetryDegradeMode
+    ? clampConfidence(config.SELF_IMPROVE_CANARY_RETRY_MIN_PROPOSAL_CONFIDENCE)
+    : 0;
+  const structuralProposalsAllowed = !canaryRetryDegradeMode;
 
   const loopRun = await executeLoopByType({
     loopType: input.batch.loopType,
@@ -302,6 +315,8 @@ export async function runLoopAttempt(input: {
     failedGateMetrics: mergedFailedMetrics,
     topConfusionAlerts: alerts,
     maxProposals: 40,
+    minConfidenceScore: proposalMinConfidence,
+    allowStructuralProposals: structuralProposalsAllowed,
   });
   const highSeveritySchemaViolations = hasHighSeveritySchemaViolations(proposalResult.proposals);
 
@@ -328,7 +343,9 @@ export async function runLoopAttempt(input: {
         batchId: input.batch.id,
         runId: loopRun.runId,
         harnessResult: harnessEvaluation.result,
-        maxStructuralChangesPerLoop: config.SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP,
+        maxStructuralChangesPerLoop: canaryRetryDegradeMode
+          ? 0
+          : config.SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP,
       })
     : {
         considered: 0,
@@ -350,6 +367,7 @@ export async function runLoopAttempt(input: {
   return {
     runId: loopRun.runId,
     passed,
+    retryableFailure: false,
     qualityGate,
     harnessPassed: harnessEvaluation.result.passed,
     failedMetrics,
@@ -375,6 +393,9 @@ export async function runLoopAttempt(input: {
       harness_metric_scores: harnessEvaluation.result.metricScores,
       high_severity_schema_violations: highSeveritySchemaViolations,
       candidate_fixes: proposalResult.proposals.map((proposal) => proposal.payload.reason),
+      canary_retry_degrade_mode: canaryRetryDegradeMode,
+      proposal_min_confidence: proposalMinConfidence,
+      structural_proposals_allowed: structuralProposalsAllowed,
     },
   };
 }

@@ -81,4 +81,33 @@ describe("run logger", () => {
     expect(stats.trace_flush_error_count).toBeGreaterThan(0);
     expect(stats.trace_event_count).toBeGreaterThan(0);
   });
+
+  it("truncates oversized payloads to avoid logger-induced stalls", async () => {
+    const inserted: PipelineRunLogRow[] = [];
+
+    const logger = new RunLogger({
+      runId: "run-4",
+      traceRetentionHours: 24,
+      flushBatchSize: 25,
+      insertBatch: async (rows) => {
+        inserted.push(...rows);
+      },
+      consoleWrite: () => {
+        // ignore
+      },
+    });
+
+    logger.info("openai", "openai.call.started", "Large payload test", {
+      request_body: {
+        input: new Array(80).fill("x".repeat(1200)),
+      },
+    });
+
+    await logger.flush("test_large_payload");
+
+    const event = inserted.find((row) => row.event === "openai.call.started");
+    expect(event).toBeDefined();
+    expect(event?.payload.__payload_truncated).toBe(true);
+    expect(typeof event?.payload.__original_size_bytes).toBe("number");
+  });
 });

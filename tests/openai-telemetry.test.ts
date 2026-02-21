@@ -16,7 +16,7 @@ function createProvider(events: OpenAITelemetryEvent[]): OpenAIProvider {
 }
 
 describe("openai telemetry", () => {
-  it("captures full chat request/response payloads for category profile", async () => {
+  it("captures summarized chat request/response payloads for category profile", async () => {
     const events: OpenAITelemetryEvent[] = [];
     const provider = createProvider(events);
 
@@ -56,7 +56,8 @@ describe("openai telemetry", () => {
 
     expect(started?.payload?.call_kind).toBe("category_profile");
     expect(started?.payload?.request_body).toBeTruthy();
-    expect(succeeded?.payload?.response_body).toBeTruthy();
+    expect(succeeded?.payload?.response_metadata).toBeTruthy();
+    expect(succeeded?.payload?.response_body).toBeUndefined();
   });
 
   it("emits retry telemetry events when first attempt fails", async () => {

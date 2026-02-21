@@ -23,7 +23,11 @@ interface MockBatch {
 const mockState = vi.hoisted(() => ({
   claimQueue: [] as MockBatch[],
   batchesById: new Map<string, MockBatch>(),
-  runSummaries: [] as Array<{ runId: string; artifacts?: Array<{ format: string; key: string; fileName: string }> }>,
+  runSummaries: [] as Array<{
+    runId?: string;
+    errorMessage?: string;
+    artifacts?: Array<{ format: string; key: string; fileName: string }>;
+  }>,
   runStatsById: new Map<string, Record<string, unknown>>(),
   finalizeAttemptCalls: [] as Array<{
     batchId: string;
@@ -109,6 +113,8 @@ vi.mock("../src/config.js", () => ({
     SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP: 2,
     SELF_IMPROVE_POST_APPLY_WATCH_LOOPS: 2,
     SELF_IMPROVE_ROLLBACK_ON_DEGRADE: true,
+    SELF_IMPROVE_CANARY_RETRY_DEGRADE_ENABLED: true,
+    SELF_IMPROVE_CANARY_RETRY_MIN_PROPOSAL_CONFIDENCE: 0.75,
   }),
 }));
 
@@ -117,6 +123,12 @@ vi.mock("../src/pipeline/run.js", () => ({
     const next = mockState.runSummaries.shift();
     if (!next) {
       throw new Error("No mocked run summary available.");
+    }
+    if (next.errorMessage) {
+      throw new Error(next.errorMessage);
+    }
+    if (!next.runId) {
+      throw new Error("Missing mocked runId.");
     }
     return {
       runId: next.runId,
@@ -283,6 +295,8 @@ import {
   parseSelfImprovementPhrase,
   processNextSelfImprovementBatch,
 } from "../src/pipeline/self-improvement-orchestrator.js";
+import { generateLearningProposals } from "../src/pipeline/learning-proposal-generator.js";
+import { applyLearningProposals } from "../src/pipeline/learning-apply.js";
 
 describe("self-improvement phrase parsing", () => {
   it("parses canary and full run commands", () => {
@@ -328,6 +342,8 @@ describe("self-improvement batch processing", () => {
     mockState.runStatsById.clear();
     mockState.finalizeAttemptCalls = [];
     mockState.finalizeBatchCalls = [];
+    vi.mocked(generateLearningProposals).mockClear();
+    vi.mocked(applyLearningProposals).mockClear();
   });
 
   it("processes queued batches in order", async () => {
@@ -350,13 +366,132 @@ describe("self-improvement batch processing", () => {
     expect(mockState.finalizeBatchCalls[1]?.batchId).toBe("batch-b");
   });
 
-  it("retries once and succeeds on retry", async () => {
-    const batch = makeBatch({ id: "batch-retry-success", requestedCount: 1, loopType: "full" });
+  it("resumes from next pending sequence without rerunning completed sequences", async () => {
+    const batch = makeBatch({ id: "batch-resume-sequence", requestedCount: 2, loopType: "full" });
+    batch.runs.push({
+      id: "existing-run-seq-1",
+      batchId: batch.id,
+      sequenceNo: 1,
+      attemptNo: 1,
+      status: "succeeded",
+      pipelineRunId: "existing-pipeline-run",
+      error: {},
+      selfCorrectionContext: {},
+      gateResult: {},
+      learningResult: {
+        auto_applied_updates: 1,
+        proposals_generated: 2,
+        proposals_applied: 1,
+        structural_applies: 0,
+        rollback_triggered: false,
+      },
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    });
+
     mockState.claimQueue.push(batch);
     mockState.batchesById.set(batch.id, batch);
 
-    mockState.runSummaries.push({ runId: "run-fail-gate" }, { runId: "run-pass-gate" });
-    mockState.runStatsById.set("run-fail-gate", makeStats({ autoAcceptedRate: 0.5, preQaPassed: false }));
+    mockState.runSummaries.push({ runId: "run-seq-2" });
+    mockState.runStatsById.set("run-seq-2", makeStats({ autoAcceptedRate: 0.92 }));
+
+    const outcome = await processNextSelfImprovementBatch();
+    expect(outcome.status).toBe("processed");
+    if (outcome.status === "processed") {
+      expect(outcome.batchStatus).toBe("completed");
+      expect(Number(outcome.summary.completed_loops ?? 0)).toBe(2);
+      expect(Number(outcome.summary.success_count ?? 0)).toBe(2);
+    }
+
+    expect(mockState.finalizeAttemptCalls.some((call) => call.sequenceNo === 1)).toBe(false);
+    expect(
+      mockState.finalizeAttemptCalls.some(
+        (call) => call.sequenceNo === 2 && call.attemptNo === 1 && call.status === "succeeded",
+      ),
+    ).toBe(true);
+  });
+
+  it("resumes from pending retry attempt after worker interruption", async () => {
+    const batch = makeBatch({ id: "batch-resume-retry", requestedCount: 1, loopType: "canary" });
+    batch.runs.push({
+      id: "existing-run-seq-1-attempt-1",
+      batchId: batch.id,
+      sequenceNo: 1,
+      attemptNo: 1,
+      status: "failed",
+      pipelineRunId: "existing-failed-run",
+      error: {},
+      selfCorrectionContext: {},
+      gateResult: {},
+      learningResult: {},
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    });
+
+    mockState.claimQueue.push(batch);
+    mockState.batchesById.set(batch.id, batch);
+
+    mockState.runSummaries.push({ runId: "run-retry-pass" });
+    mockState.runStatsById.set("run-retry-pass", makeStats({ autoAcceptedRate: 0.9 }));
+
+    const outcome = await processNextSelfImprovementBatch();
+    expect(outcome.status).toBe("processed");
+    if (outcome.status === "processed") {
+      expect(outcome.batchStatus).toBe("completed");
+      expect(Number(outcome.summary.retried_success_count ?? 0)).toBe(1);
+    }
+
+    expect(
+      mockState.finalizeAttemptCalls.some(
+        (call) =>
+          call.sequenceNo === 1 &&
+          call.attemptNo === 2 &&
+          call.status === "retried_succeeded",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not resume retry when the persisted failure is gate-only", async () => {
+    const batch = makeBatch({ id: "batch-gate-terminal", requestedCount: 1, loopType: "canary" });
+    batch.runs.push({
+      id: "existing-run-seq-1-attempt-1",
+      batchId: batch.id,
+      sequenceNo: 1,
+      attemptNo: 1,
+      status: "failed",
+      pipelineRunId: "existing-failed-run",
+      error: {},
+      selfCorrectionContext: {},
+      gateResult: {
+        passed: false,
+      },
+      learningResult: {},
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    });
+
+    mockState.claimQueue.push(batch);
+    mockState.batchesById.set(batch.id, batch);
+
+    const outcome = await processNextSelfImprovementBatch();
+    expect(outcome.status).toBe("processed");
+    if (outcome.status === "processed") {
+      expect(outcome.batchStatus).toBe("completed_with_failures");
+      expect(Number(outcome.summary.final_failed_count ?? 0)).toBe(1);
+    }
+
+    expect(mockState.finalizeAttemptCalls.length).toBe(0);
+  });
+
+  it("retries once and succeeds on retry when the first failure is runtime", async () => {
+    const batch = makeBatch({ id: "batch-retry-runtime", requestedCount: 1, loopType: "full" });
+    mockState.claimQueue.push(batch);
+    mockState.batchesById.set(batch.id, batch);
+
+    mockState.runSummaries.push(
+      { errorMessage: "temporary upstream outage" },
+      { runId: "run-pass-gate" },
+    );
     mockState.runStatsById.set("run-pass-gate", makeStats({ autoAcceptedRate: 0.92 }));
 
     const outcome = await processNextSelfImprovementBatch();
@@ -370,12 +505,37 @@ describe("self-improvement batch processing", () => {
     expect(statuses).toContain("retried_succeeded");
   });
 
+  it("uses canary retry degrade mode after runtime failure", async () => {
+    const batch = makeBatch({ id: "batch-canary-degrade", requestedCount: 1, loopType: "canary" });
+    mockState.claimQueue.push(batch);
+    mockState.batchesById.set(batch.id, batch);
+
+    mockState.runSummaries.push(
+      { errorMessage: "temporary upstream outage" },
+      { runId: "run-pass-gate" },
+    );
+    mockState.runStatsById.set("run-pass-gate", makeStats({ autoAcceptedRate: 0.9 }));
+
+    await processNextSelfImprovementBatch();
+
+    expect(vi.mocked(generateLearningProposals)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(generateLearningProposals).mock.calls[0]?.[0]).toMatchObject({
+      allowStructuralProposals: false,
+      minConfidenceScore: 0.75,
+    });
+
+    expect(vi.mocked(applyLearningProposals)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(applyLearningProposals).mock.calls[0]?.[0]).toMatchObject({
+      maxStructuralChangesPerLoop: 0,
+    });
+  });
+
   it("applies learning updates only when gate passes", async () => {
     const batch = makeBatch({ id: "batch-policy", requestedCount: 2, loopType: "full" });
     mockState.claimQueue.push(batch);
     mockState.batchesById.set(batch.id, batch);
 
-    mockState.runSummaries.push({ runId: "run-pass" }, { runId: "run-fail" }, { runId: "run-fail-retry" });
+    mockState.runSummaries.push({ runId: "run-pass" }, { runId: "run-fail" });
     mockState.runStatsById.set(
       "run-pass",
       makeStats({
@@ -392,16 +552,19 @@ describe("self-improvement batch processing", () => {
       }),
     );
     mockState.runStatsById.set("run-fail", makeStats({ autoAcceptedRate: 0.4, preQaPassed: false }));
-    mockState.runStatsById.set("run-fail-retry", makeStats({ autoAcceptedRate: 0.3, preQaPassed: false }));
 
     const outcome = await processNextSelfImprovementBatch();
     expect(outcome.status).toBe("processed");
+    if (outcome.status === "processed") {
+      expect(outcome.batchStatus).toBe("completed_with_failures");
+    }
 
     const successful = mockState.finalizeAttemptCalls.find((call) => call.status === "succeeded");
     expect(Number(successful?.learningResult.auto_applied_updates ?? 0)).toBeGreaterThan(0);
 
     const failed = mockState.finalizeAttemptCalls.find((call) => call.status === "failed");
     expect(Number(failed?.learningResult.auto_applied_updates ?? 0)).toBe(0);
+    expect(mockState.finalizeAttemptCalls.filter((call) => call.sequenceNo === 2).length).toBe(1);
   });
 
   it("handles mocked canary batch with mixed outcomes", async () => {
@@ -411,17 +574,14 @@ describe("self-improvement batch processing", () => {
 
     mockState.runSummaries.push(
       { runId: "run-c1" },
-      { runId: "run-c2-fail" },
+      { errorMessage: "temporary upstream outage" },
       { runId: "run-c2-pass" },
-      { runId: "run-c3-fail-1" },
-      { runId: "run-c3-fail-2" },
+      { runId: "run-c3-fail-gate" },
     );
 
     mockState.runStatsById.set("run-c1", makeStats({ autoAcceptedRate: 0.9 }));
-    mockState.runStatsById.set("run-c2-fail", makeStats({ autoAcceptedRate: 0.6, preQaPassed: false }));
     mockState.runStatsById.set("run-c2-pass", makeStats({ autoAcceptedRate: 0.85 }));
-    mockState.runStatsById.set("run-c3-fail-1", makeStats({ autoAcceptedRate: 0.5, preQaPassed: false }));
-    mockState.runStatsById.set("run-c3-fail-2", makeStats({ autoAcceptedRate: 0.55, preQaPassed: false }));
+    mockState.runStatsById.set("run-c3-fail-gate", makeStats({ autoAcceptedRate: 0.55, preQaPassed: false }));
 
     const outcome = await processNextSelfImprovementBatch();
     expect(outcome.status).toBe("processed");

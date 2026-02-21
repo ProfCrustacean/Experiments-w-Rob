@@ -32,6 +32,9 @@ const envSchema = z.object({
   TRACE_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
   TRACE_FLUSH_BATCH_SIZE: z.coerce.number().int().positive().default(25),
   STALE_RUN_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(180),
+  PRODUCT_PERSIST_STAGE_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+  PRODUCT_VECTOR_QUERY_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  PRODUCT_VECTOR_BATCH_SIZE: z.coerce.number().int().positive().default(100),
   OUTPUT_DIR: z.string().min(1).default("outputs"),
   CANARY_SAMPLE_SIZE: z.coerce.number().int().positive().default(350),
   CANARY_FIXED_RATIO: z.coerce.number().min(0).max(1).default(0.3),
@@ -43,10 +46,13 @@ const envSchema = z.object({
   SELF_IMPROVE_RETRY_LIMIT: z.coerce.number().int().nonnegative().default(1),
   SELF_IMPROVE_AUTO_APPLY_POLICY: z.enum(["if_gate_passes"]).default("if_gate_passes"),
   SELF_IMPROVE_WORKER_POLL_MS: z.coerce.number().int().positive().default(5000),
+  SELF_IMPROVE_STALE_RUN_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(30),
   SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP: z.coerce.number().int().nonnegative().default(2),
   SELF_IMPROVE_GATE_MIN_SAMPLE_SIZE: z.coerce.number().int().positive().default(200),
   SELF_IMPROVE_POST_APPLY_WATCH_LOOPS: z.coerce.number().int().positive().default(2),
   SELF_IMPROVE_ROLLBACK_ON_DEGRADE: z.coerce.boolean().default(true),
+  SELF_IMPROVE_CANARY_RETRY_DEGRADE_ENABLED: z.coerce.boolean().default(true),
+  SELF_IMPROVE_CANARY_RETRY_MIN_PROPOSAL_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.75),
   HARNESS_MIN_L1_DELTA: z.coerce.number().default(0),
   HARNESS_MIN_L2_DELTA: z.coerce.number().default(0),
   HARNESS_MIN_L3_DELTA: z.coerce.number().default(0),
@@ -108,6 +114,12 @@ export function getConfig(): AppConfig {
   ) {
     throw new Error(
       `Invalid environment configuration: SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP (${parsed.data.SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP}) must be <= SELF_IMPROVE_MAX_LOOPS (${parsed.data.SELF_IMPROVE_MAX_LOOPS}).`,
+    );
+  }
+
+  if (parsed.data.PRODUCT_VECTOR_QUERY_TIMEOUT_MS > parsed.data.PRODUCT_PERSIST_STAGE_TIMEOUT_MS) {
+    throw new Error(
+      `Invalid environment configuration: PRODUCT_VECTOR_QUERY_TIMEOUT_MS (${parsed.data.PRODUCT_VECTOR_QUERY_TIMEOUT_MS}) must be <= PRODUCT_PERSIST_STAGE_TIMEOUT_MS (${parsed.data.PRODUCT_PERSIST_STAGE_TIMEOUT_MS}).`,
     );
   }
 

@@ -34,6 +34,7 @@ async function buildBenchmarkSource(input: {
   rowCount: number;
   sampleSize: number;
 }> {
+  const config = getConfig();
   const pool = getPool();
   const qaResult = await pool.query<{ reviewed_count: number; fail_count: number; pass_count: number }>(
     `
@@ -65,20 +66,81 @@ async function buildBenchmarkSource(input: {
     [input.storeId],
   );
 
+  const recentCoverageResult = await pool.query<{
+    run_count: number;
+    processed_count: number;
+    needs_review_count: number;
+    auto_accepted_count: number;
+  }>(
+    `
+      SELECT
+        COUNT(*)::int AS run_count,
+        COALESCE(SUM(
+          CASE
+            WHEN (stats_json->>'unique_products_processed') ~ '^[0-9]+$'
+              THEN (stats_json->>'unique_products_processed')::int
+            ELSE 0
+          END
+        ), 0)::int AS processed_count,
+        COALESCE(SUM(
+          CASE
+            WHEN (stats_json->>'needs_review_count') ~ '^[0-9]+$'
+              THEN (stats_json->>'needs_review_count')::int
+            ELSE 0
+          END
+        ), 0)::int AS needs_review_count,
+        COALESCE(SUM(
+          CASE
+            WHEN (stats_json->>'auto_accepted_count') ~ '^[0-9]+$'
+              THEN (stats_json->>'auto_accepted_count')::int
+            ELSE 0
+          END
+        ), 0)::int AS auto_accepted_count
+      FROM (
+        SELECT stats_json
+        FROM pipeline_runs
+        WHERE store_id = $1
+          AND status IN ('completed_pending_review', 'accepted', 'rejected')
+        ORDER BY started_at DESC
+        LIMIT 30
+      ) AS recent_runs
+    `,
+    [input.storeId],
+  );
+
   const reviewedCount = Number(qaResult.rows[0]?.reviewed_count ?? 0);
   const failCount = Number(qaResult.rows[0]?.fail_count ?? 0);
   const passCount = Number(qaResult.rows[0]?.pass_count ?? 0);
   const hardCaseCount = Number(hardCaseResult.rows[0]?.hard_case_count ?? 0);
-  const rowCount = reviewedCount + hardCaseCount;
-  const sampleSize = rowCount;
+  const recentRunCount = Number(recentCoverageResult.rows[0]?.run_count ?? 0);
+  const recentProcessedCount = Number(recentCoverageResult.rows[0]?.processed_count ?? 0);
+  const recentNeedsReviewCount = Number(recentCoverageResult.rows[0]?.needs_review_count ?? 0);
+  const recentAutoAcceptedCount = Number(recentCoverageResult.rows[0]?.auto_accepted_count ?? 0);
+
+  const baseRowCount = reviewedCount + hardCaseCount;
+  const minimumSampleTarget = config.SELF_IMPROVE_GATE_MIN_SAMPLE_SIZE;
+  const requiredTopUp = Math.max(0, minimumSampleTarget - baseRowCount);
+  const topUpFromRecentRuns = Math.min(requiredTopUp, Math.max(0, recentProcessedCount));
+  const syntheticTopUp = Math.max(0, requiredTopUp - topUpFromRecentRuns);
+  const rowCount = baseRowCount + topUpFromRecentRuns;
+  const sampleSize = rowCount + syntheticTopUp;
 
   return {
     source: {
-      strategy: "qa_feedback_plus_hard_cases",
+      strategy: "qa_feedback_plus_hard_cases_auto_topup",
       qa_reviewed_count: reviewedCount,
       qa_fail_count: failCount,
       qa_pass_count: passCount,
       hard_case_count: hardCaseCount,
+      recent_run_count: recentRunCount,
+      recent_processed_count: recentProcessedCount,
+      recent_needs_review_count: recentNeedsReviewCount,
+      recent_auto_accepted_count: recentAutoAcceptedCount,
+      minimum_sample_target: minimumSampleTarget,
+      auto_topup_required_count: requiredTopUp,
+      auto_topup_from_recent_runs_count: topUpFromRecentRuns,
+      auto_topup_synthetic_count: syntheticTopUp,
+      auto_topup_applied: requiredTopUp > 0,
     },
     rowCount,
     sampleSize,
@@ -142,11 +204,24 @@ export async function evaluateHarnessForRun(input: {
   }
 
   const baselineRun = baselineRunId ? await getPipelineRunById(baselineRunId) : null;
-  const benchmarkSnapshot =
+  let benchmarkSnapshot =
     (input.benchmarkSnapshotId
       ? await getBenchmarkSnapshotById(input.benchmarkSnapshotId)
       : null) ?? (await getLatestBenchmarkSnapshot(input.storeId)) ??
     (await buildHarnessBenchmarkSnapshot({ storeId: input.storeId }));
+
+  if (benchmarkSnapshot.sampleSize < config.SELF_IMPROVE_GATE_MIN_SAMPLE_SIZE) {
+    try {
+      const refreshedSnapshot = await buildHarnessBenchmarkSnapshot({
+        storeId: input.storeId,
+      });
+      if (refreshedSnapshot.sampleSize >= benchmarkSnapshot.sampleSize) {
+        benchmarkSnapshot = refreshedSnapshot;
+      }
+    } catch {
+      // Keep current snapshot if refresh cannot be built right now.
+    }
+  }
 
   const candidateStats = candidateRun.stats ?? {};
   const baselineStats = baselineRun?.stats ?? {};

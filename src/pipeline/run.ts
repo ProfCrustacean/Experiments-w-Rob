@@ -113,6 +113,34 @@ function shouldLogProgress(done: number, total: number): boolean {
   return done === 1 || done % 10 === 0;
 }
 
+class StageTimeoutError extends Error {
+  constructor(stageName: string, timeoutMs: number) {
+    super(`Stage '${stageName}' exceeded timeout (${timeoutMs}ms).`);
+    this.name = "StageTimeoutError";
+  }
+}
+
+async function withStageTimeout<T>(
+  stageName: string,
+  timeoutMs: number,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new StageTimeoutError(stageName, timeoutMs));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([operation(), timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
 function hasVariantValues(values: Record<string, string | number | boolean | null>): boolean {
   return Object.entries(values).some(([key, value]) => {
     if (key === "item_subtype") {
@@ -325,6 +353,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       quality_qa_sample_size: config.QUALITY_QA_SAMPLE_SIZE,
       trace_retention_hours: config.TRACE_RETENTION_HOURS,
       trace_flush_batch_size: config.TRACE_FLUSH_BATCH_SIZE,
+      product_persist_stage_timeout_ms: config.PRODUCT_PERSIST_STAGE_TIMEOUT_MS,
+      product_vector_query_timeout_ms: config.PRODUCT_VECTOR_QUERY_TIMEOUT_MS,
+      product_vector_batch_size: config.PRODUCT_VECTOR_BATCH_SIZE,
       output_dir: config.OUTPUT_DIR,
     };
 
@@ -701,25 +732,107 @@ export async function runPipeline(input: RunPipelineInput): Promise<PipelineRunS
       stage_name: "product_persist",
     });
     const productPersistStart = Date.now();
+    const persistSubstageTimeoutMs = config.PRODUCT_PERSIST_STAGE_TIMEOUT_MS;
+    const productUpsertBatchSize = 50;
+    let persistedProductCount = 0;
+    let vectorPersistedRows = 0;
+    let vectorPersistedBatches = 0;
+
+    logger.info("pipeline", "substage.started", "Starting products upsert substage.", {
+      stage_name: "product_persist",
+      substage_name: "products_upsert",
+      timeout_ms: persistSubstageTimeoutMs,
+      query_timeout_ms: config.PRODUCT_VECTOR_QUERY_TIMEOUT_MS,
+      batch_size: productUpsertBatchSize,
+      product_count: partitioned.sampled.length,
+    });
+    const productUpsertStart = Date.now();
     const persistedProducts = await upsertProducts({
       storeId: input.storeId,
       runId,
       products: partitioned.sampled,
       enrichments: enrichmentMap,
       categoriesBySlug,
+      queryTimeoutMs: config.PRODUCT_VECTOR_QUERY_TIMEOUT_MS,
+      batchSize: productUpsertBatchSize,
+      stageTimeoutMs: persistSubstageTimeoutMs,
+      timeoutStageName: "product_persist.products_upsert",
+      onProgress: (progress) => {
+        logger.debug(
+          "pipeline",
+          "substage.products_upsert.progress",
+          "Products upsert progress updated.",
+          {
+            stage_name: "product_persist",
+            substage_name: "products_upsert",
+            processed: progress.processed,
+            total: progress.total,
+          },
+        );
+      },
+    });
+    persistedProductCount = persistedProducts.size;
+    stageTimingsMs.product_upsert_ms = Date.now() - productUpsertStart;
+    logger.info("pipeline", "substage.completed", "Products upsert substage completed.", {
+      stage_name: "product_persist",
+      substage_name: "products_upsert",
+      elapsed_ms: stageTimingsMs.product_upsert_ms,
+      persisted_products: persistedProductCount,
     });
 
-    await upsertProductVectors({
+    logger.info("pipeline", "substage.started", "Starting vectors upsert substage.", {
+      stage_name: "product_persist",
+      substage_name: "vectors_upsert",
+      timeout_ms: persistSubstageTimeoutMs,
+      query_timeout_ms: config.PRODUCT_VECTOR_QUERY_TIMEOUT_MS,
+      batch_size: config.PRODUCT_VECTOR_BATCH_SIZE,
+    });
+    const vectorUpsertStart = Date.now();
+    const vectorUpsertResult = await upsertProductVectors({
       productBySku: persistedProducts,
       vectorsBySku,
       embeddedTextBySku,
       embeddingModel: config.EMBEDDING_MODEL,
+      queryTimeoutMs: config.PRODUCT_VECTOR_QUERY_TIMEOUT_MS,
+      batchSize: config.PRODUCT_VECTOR_BATCH_SIZE,
+      stageTimeoutMs: persistSubstageTimeoutMs,
+      timeoutStageName: "product_persist.vectors_upsert",
+      onBatchProgress: (progress) => {
+        logger.debug(
+          "pipeline",
+          "substage.vectors_upsert.progress",
+          "Product vectors upsert progress updated.",
+          {
+            stage_name: "product_persist",
+            substage_name: "vectors_upsert",
+            processed_batches: progress.processedBatches,
+            total_batches: progress.totalBatches,
+            processed_rows: progress.processedRows,
+            total_rows: progress.totalRows,
+          },
+        );
+      },
     });
+    vectorPersistedRows = vectorUpsertResult.totalRows;
+    vectorPersistedBatches = vectorUpsertResult.totalBatches;
+    stageTimingsMs.product_vector_upsert_ms = Date.now() - vectorUpsertStart;
+    logger.info("pipeline", "substage.completed", "Vectors upsert substage completed.", {
+      stage_name: "product_persist",
+      substage_name: "vectors_upsert",
+      elapsed_ms: stageTimingsMs.product_vector_upsert_ms,
+      persisted_vectors: vectorPersistedRows,
+      persisted_vector_batches: vectorPersistedBatches,
+    });
+
     stageTimingsMs.product_persist_ms = Date.now() - productPersistStart;
     logger.info("pipeline", "stage.completed", "Product persistence stage completed.", {
       stage_name: "product_persist",
       elapsed_ms: stageTimingsMs.product_persist_ms,
-      persisted_products: persistedProducts.size,
+      persisted_products: persistedProductCount,
+      persisted_vectors: vectorPersistedRows,
+      persisted_vector_batches: vectorPersistedBatches,
+      substage_timeout_ms: persistSubstageTimeoutMs,
+      vector_query_timeout_ms: config.PRODUCT_VECTOR_QUERY_TIMEOUT_MS,
     });
 
     logger.info("pipeline", "stage.started", "Starting QA report stage.", {

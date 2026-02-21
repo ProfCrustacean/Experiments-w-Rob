@@ -105,6 +105,11 @@ export interface SelfImprovementBatchDetails extends SelfImprovementBatchListIte
   runs: SelfImprovementRunItem[];
 }
 
+export interface StaleSelfImprovementRecoveryResult {
+  recoveredRuns: number;
+  requeuedBatches: number;
+}
+
 interface PipelineRunQueryRow {
   id: string;
   store_id: string;
@@ -490,6 +495,111 @@ export async function claimNextQueuedSelfImprovementBatch(): Promise<SelfImprove
     }
 
     return mapSelfImprovementBatchRow(result.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function recoverStaleSelfImprovementBatches(input: {
+  staleAfterMinutes: number;
+}): Promise<StaleSelfImprovementRecoveryResult> {
+  if (!Number.isInteger(input.staleAfterMinutes) || input.staleAfterMinutes <= 0) {
+    throw new Error("staleAfterMinutes must be a positive integer.");
+  }
+
+  const pool = getPool();
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const staleRunResult = await client.query<{ batch_id: string }>(
+      `
+        WITH stale_runs AS (
+          SELECT
+            run.id,
+            run.batch_id,
+            run.attempt_no,
+            batch.retry_limit
+          FROM self_improvement_batch_runs AS run
+          INNER JOIN self_improvement_batches AS batch
+            ON batch.id = run.batch_id
+          WHERE batch.status = 'running'
+            AND run.status = 'running'
+            AND run.started_at IS NOT NULL
+            AND run.started_at <= NOW() - (($1::text || ' minutes')::interval)
+          FOR UPDATE
+        )
+        UPDATE self_improvement_batch_runs AS run
+        SET
+          status = (
+            CASE
+              WHEN stale_runs.attempt_no > stale_runs.retry_limit THEN 'retried_failed'::text
+              ELSE 'failed'::text
+            END
+          ),
+          error_jsonb = COALESCE(run.error_jsonb, '{}'::jsonb) || jsonb_build_object(
+            'message', 'stale_run_recovered_after_worker_interrupt',
+            'recovered_at', NOW(),
+            'stale_timeout_minutes', $1::int
+          ),
+          self_correction_context_jsonb = COALESCE(run.self_correction_context_jsonb, '{}'::jsonb)
+            || jsonb_build_object(
+              'failureSummary', 'Loop attempt recovered after worker interruption.',
+              'staleRecoveredAt', NOW(),
+              'staleTimeoutMinutes', $1::int
+            ),
+          finished_at = COALESCE(run.finished_at, NOW())
+        FROM stale_runs
+        WHERE run.id = stale_runs.id
+        RETURNING run.batch_id
+      `,
+      [input.staleAfterMinutes],
+    );
+
+    const recoveredBatchIds = [...new Set(staleRunResult.rows.map((row) => row.batch_id))];
+
+    const requeueResult = await client.query(
+      `
+        UPDATE self_improvement_batches AS batch
+        SET
+          status = 'queued',
+          finished_at = NULL,
+          summary_jsonb = COALESCE(batch.summary_jsonb, '{}'::jsonb) || jsonb_build_object(
+            'running_sequence', NULL,
+            'stale_recovery', jsonb_build_object(
+              'recovered_at', NOW(),
+              'stale_timeout_minutes', $1::int
+            )
+          )
+        WHERE batch.status = 'running'
+          AND (
+            (
+              batch.id = ANY($2::uuid[])
+            )
+            OR (
+              batch.started_at IS NOT NULL
+              AND batch.started_at <= NOW() - (($1::text || ' minutes')::interval)
+              AND NOT EXISTS (
+                SELECT 1
+                FROM self_improvement_batch_runs AS run
+                WHERE run.batch_id = batch.id
+                  AND run.status = 'running'
+              )
+            )
+          )
+      `,
+      [input.staleAfterMinutes, recoveredBatchIds],
+    );
+
+    await client.query("COMMIT");
+    return {
+      recoveredRuns: staleRunResult.rowCount ?? 0,
+      requeuedBatches: requeueResult.rowCount ?? 0,
+    };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

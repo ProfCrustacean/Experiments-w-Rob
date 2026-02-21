@@ -7,6 +7,12 @@ import {
 } from "./persist.js";
 import type { SelfImproveProposal, SelfImproveProposalKind } from "../types.js";
 
+const STRUCTURAL_PROPOSAL_KINDS = new Set<SelfImproveProposalKind>([
+  "taxonomy_merge",
+  "taxonomy_split",
+  "taxonomy_move",
+]);
+
 interface QaFailRow {
   predicted_category: string;
   corrected_category: string | null;
@@ -115,6 +121,8 @@ export async function generateLearningProposals(input: {
     fallback_count: number;
   }>;
   maxProposals?: number;
+  minConfidenceScore?: number;
+  allowStructuralProposals?: boolean;
 }): Promise<{
   proposals: SelfImproveProposal[];
   summaryPatch: Partial<SelfImprovementBatchSummary>;
@@ -273,8 +281,16 @@ export async function generateLearningProposals(input: {
     });
   }
 
+  const minConfidenceScore = clampScore(input.minConfidenceScore ?? 0);
+  const allowStructuralProposals = input.allowStructuralProposals ?? true;
   const maxProposals = Math.max(1, Math.floor(input.maxProposals ?? 30));
   const limited = generated
+    .filter((proposal) => {
+      if (!allowStructuralProposals && STRUCTURAL_PROPOSAL_KINDS.has(proposal.proposalKind)) {
+        return false;
+      }
+      return proposal.confidenceScore >= minConfidenceScore;
+    })
     .sort((left, right) => right.expectedImpactScore - left.expectedImpactScore)
     .slice(0, maxProposals);
 

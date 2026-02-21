@@ -8,6 +8,7 @@ import {
   updateSelfImprovementBatchSummary,
   type SelfImprovementBatchListItem,
   type SelfImprovementBatchSummary,
+  type SelfImprovementRunItem,
 } from "./persist.js";
 import { buildSelfCorrectionContext } from "./self-correction-context.js";
 import { runLoopAttempt, type LoopAttemptResult } from "./self-improvement-loop.js";
@@ -44,6 +45,23 @@ export type ProcessNextSelfImprovementBatchResult =
 function asNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function hasRunErrorMessage(run: SelfImprovementRunItem): boolean {
+  const message = asRecord(run.error).message;
+  return typeof message === "string" && message.trim().length > 0;
+}
+
+function isNonRetryableGateFailure(run: SelfImprovementRunItem): boolean {
+  const gatePassed = asRecord(run.gateResult).passed;
+  return gatePassed === false && !hasRunErrorMessage(run);
 }
 
 function toErrorMessage(error: unknown): string {
@@ -111,14 +129,188 @@ function withSummaryIncrements(
   };
 }
 
+interface SequenceRuntimePlan {
+  shouldProcess: boolean;
+  completed: boolean;
+  succeeded: boolean;
+  retriedSuccess: boolean;
+  finalFailed: boolean;
+  nextAttemptNo: number;
+  latestRun: SelfImprovementRunItem | null;
+}
+
+function getLatestRunForSequence(runs: SelfImprovementRunItem[]): SelfImprovementRunItem | null {
+  if (runs.length === 0) {
+    return null;
+  }
+
+  return [...runs].sort((left, right) => right.attemptNo - left.attemptNo)[0];
+}
+
+function buildSequenceRuntimePlan(
+  runs: SelfImprovementRunItem[],
+  retryLimit: number,
+): SequenceRuntimePlan {
+  const latestRun = getLatestRunForSequence(runs);
+  if (!latestRun) {
+    return {
+      shouldProcess: true,
+      completed: false,
+      succeeded: false,
+      retriedSuccess: false,
+      finalFailed: false,
+      nextAttemptNo: 1,
+      latestRun: null,
+    };
+  }
+
+  if (latestRun.status === "succeeded") {
+    return {
+      shouldProcess: false,
+      completed: true,
+      succeeded: true,
+      retriedSuccess: false,
+      finalFailed: false,
+      nextAttemptNo: latestRun.attemptNo,
+      latestRun,
+    };
+  }
+
+  if (latestRun.status === "retried_succeeded") {
+    return {
+      shouldProcess: false,
+      completed: true,
+      succeeded: false,
+      retriedSuccess: true,
+      finalFailed: false,
+      nextAttemptNo: latestRun.attemptNo,
+      latestRun,
+    };
+  }
+
+  if (latestRun.status === "retried_failed") {
+    return {
+      shouldProcess: false,
+      completed: true,
+      succeeded: false,
+      retriedSuccess: false,
+      finalFailed: true,
+      nextAttemptNo: latestRun.attemptNo,
+      latestRun,
+    };
+  }
+
+  if (latestRun.status === "failed") {
+    const hasRetryRemaining =
+      !isNonRetryableGateFailure(latestRun) && latestRun.attemptNo <= retryLimit;
+    if (!hasRetryRemaining) {
+      return {
+        shouldProcess: false,
+        completed: true,
+        succeeded: false,
+        retriedSuccess: false,
+        finalFailed: true,
+        nextAttemptNo: latestRun.attemptNo,
+        latestRun,
+      };
+    }
+
+    return {
+      shouldProcess: true,
+      completed: false,
+      succeeded: false,
+      retriedSuccess: false,
+      finalFailed: false,
+      nextAttemptNo: latestRun.attemptNo + 1,
+      latestRun,
+    };
+  }
+
+  return {
+    shouldProcess: true,
+    completed: false,
+    succeeded: false,
+    retriedSuccess: false,
+    finalFailed: false,
+    nextAttemptNo: latestRun.attemptNo,
+    latestRun,
+  };
+}
+
+function rebuildSummaryFromRuns(batch: SelfImprovementBatchListItem, runs: SelfImprovementRunItem[]) {
+  const source = defaultBatchSummary(batch);
+  const runsBySequence = new Map<number, SelfImprovementRunItem[]>();
+
+  for (const run of runs) {
+    const current = runsBySequence.get(run.sequenceNo) ?? [];
+    current.push(run);
+    runsBySequence.set(run.sequenceNo, current);
+  }
+
+  let completedLoops = 0;
+  let successCount = 0;
+  let retriedSuccessCount = 0;
+  let finalFailedCount = 0;
+  let runningSequence: number | null = null;
+  let autoAppliedUpdatesCount = 0;
+  let proposalsGenerated = 0;
+  let proposalsApplied = 0;
+  let structuralApplies = 0;
+  let rollbacksTriggered = 0;
+
+  for (let sequenceNo = 1; sequenceNo <= batch.requestedCount; sequenceNo += 1) {
+    const sequenceRuns = runsBySequence.get(sequenceNo) ?? [];
+    const plan = buildSequenceRuntimePlan(sequenceRuns, batch.retryLimit);
+    const latest = plan.latestRun;
+
+    if (latest?.status === "running" && runningSequence === null) {
+      runningSequence = sequenceNo;
+    }
+
+    if (!plan.completed) {
+      continue;
+    }
+
+    completedLoops += 1;
+    successCount += plan.succeeded ? 1 : 0;
+    retriedSuccessCount += plan.retriedSuccess ? 1 : 0;
+    finalFailedCount += plan.finalFailed ? 1 : 0;
+
+    autoAppliedUpdatesCount += asNumber(latest?.learningResult.auto_applied_updates);
+    proposalsGenerated += asNumber(latest?.learningResult.proposals_generated);
+    proposalsApplied += asNumber(latest?.learningResult.proposals_applied);
+    structuralApplies += asNumber(latest?.learningResult.structural_applies);
+    rollbacksTriggered += latest?.learningResult.rollback_triggered ? 1 : 0;
+  }
+
+  return {
+    ...source,
+    total_loops: batch.requestedCount,
+    completed_loops: completedLoops,
+    failed_loops: finalFailedCount,
+    running_sequence: runningSequence,
+    success_count: successCount,
+    retried_success_count: retriedSuccessCount,
+    final_failed_count: finalFailedCount,
+    gate_pass_rate:
+      completedLoops > 0 ? (successCount + retriedSuccessCount) / completedLoops : 0,
+    auto_applied_updates_count: autoAppliedUpdatesCount,
+    proposals_generated: proposalsGenerated,
+    proposals_applied: proposalsApplied,
+    structural_applies: structuralApplies,
+    rollbacks_triggered: rollbacksTriggered,
+  } satisfies SelfImprovementBatchSummary;
+}
+
 async function processSequence(input: {
   batch: SelfImprovementBatchListItem;
   sequenceNo: number;
   retryLimit: number;
+  startAttemptNo: number;
 }): Promise<SequenceResult> {
   let priorFailedMetrics: string[] = [];
 
-  for (let attemptNo = 1; attemptNo <= input.retryLimit + 1; attemptNo += 1) {
+  for (let attemptNo = input.startAttemptNo; attemptNo <= input.retryLimit + 1; attemptNo += 1) {
     await startSelfImprovementRunAttempt({
       batchId: input.batch.id,
       sequenceNo: input.sequenceNo,
@@ -135,7 +327,8 @@ async function processSequence(input: {
         previousFailedMetrics: priorFailedMetrics,
       });
 
-      const shouldRetry = !attemptResult.passed && attemptNo <= input.retryLimit;
+      const shouldRetry =
+        !attemptResult.passed && attemptResult.retryableFailure && attemptNo <= input.retryLimit;
       const status: SelfImproveRunStatus = attemptResult.passed
         ? attemptNo === 1
           ? "succeeded"
@@ -282,6 +475,15 @@ export async function processNextSelfImprovementBatch(): Promise<ProcessNextSelf
   let summary = defaultBatchSummary(batch);
 
   try {
+    const initialBatch = await getSelfImprovementBatchDetails(batch.id);
+    if (initialBatch) {
+      summary = rebuildSummaryFromRuns(batch, initialBatch.runs);
+      await updateSelfImprovementBatchSummary({
+        batchId: batch.id,
+        summary,
+      });
+    }
+
     for (let sequenceNo = 1; sequenceNo <= batch.requestedCount; sequenceNo += 1) {
       const latestBatch = await getSelfImprovementBatchDetails(batch.id);
       if (latestBatch?.status === "cancelled") {
@@ -304,6 +506,12 @@ export async function processNextSelfImprovementBatch(): Promise<ProcessNextSelf
         };
       }
 
+      const sequenceRuns = (latestBatch?.runs ?? []).filter((run) => run.sequenceNo === sequenceNo);
+      const sequencePlan = buildSequenceRuntimePlan(sequenceRuns, batch.retryLimit);
+      if (!sequencePlan.shouldProcess) {
+        continue;
+      }
+
       summary = {
         ...summary,
         running_sequence: sequenceNo,
@@ -318,6 +526,7 @@ export async function processNextSelfImprovementBatch(): Promise<ProcessNextSelf
         batch,
         sequenceNo,
         retryLimit: batch.retryLimit,
+        startAttemptNo: sequencePlan.nextAttemptNo,
       });
 
       summary = withSummaryIncrements(

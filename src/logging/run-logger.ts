@@ -15,6 +15,57 @@ interface RunLoggerOptions {
   now?: () => Date;
 }
 
+const MAX_LOG_PAYLOAD_BYTES = 24_000;
+const MAX_LOG_PAYLOAD_DEPTH = 4;
+const MAX_LOG_ARRAY_ITEMS = 20;
+const MAX_LOG_OBJECT_KEYS = 40;
+const MAX_LOG_STRING_CHARS = 700;
+
+function truncateString(value: string): string {
+  if (value.length <= MAX_LOG_STRING_CHARS) {
+    return value;
+  }
+
+  return `${value.slice(0, MAX_LOG_STRING_CHARS)}…`;
+}
+
+function truncateForLog(value: unknown, depth: number): unknown {
+  if (depth >= MAX_LOG_PAYLOAD_DEPTH) {
+    return "[truncated_depth_limit]";
+  }
+
+  if (typeof value === "string") {
+    return truncateString(value);
+  }
+
+  if (typeof value === "number" || typeof value === "boolean" || value === null) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const truncated = value.slice(0, MAX_LOG_ARRAY_ITEMS).map((entry) => truncateForLog(entry, depth + 1));
+    if (value.length > MAX_LOG_ARRAY_ITEMS) {
+      truncated.push(`[truncated_items:${value.length - MAX_LOG_ARRAY_ITEMS}]`);
+    }
+    return truncated;
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const entries = Object.entries(value as Record<string, unknown>).slice(0, MAX_LOG_OBJECT_KEYS);
+    const output: Record<string, unknown> = {};
+    for (const [key, entry] of entries) {
+      output[key] = truncateForLog(entry, depth + 1);
+    }
+    const originalKeyCount = Object.keys(value as Record<string, unknown>).length;
+    if (originalKeyCount > MAX_LOG_OBJECT_KEYS) {
+      output.__truncated_keys = originalKeyCount - MAX_LOG_OBJECT_KEYS;
+    }
+    return output;
+  }
+
+  return String(value);
+}
+
 function safePayload(value: unknown): Record<string, unknown> {
   if (value === undefined || value === null) {
     return {};
@@ -22,10 +73,30 @@ function safePayload(value: unknown): Record<string, unknown> {
 
   try {
     const parsed = JSON.parse(JSON.stringify(value));
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
+    const normalized =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : { value: parsed as unknown };
+
+    const serialized = JSON.stringify(normalized);
+    if (Buffer.byteLength(serialized, "utf8") <= MAX_LOG_PAYLOAD_BYTES) {
+      return normalized;
     }
-    return { value: parsed as unknown };
+
+    const truncatedPayload = truncateForLog(normalized, 0);
+    if (truncatedPayload && typeof truncatedPayload === "object" && !Array.isArray(truncatedPayload)) {
+      return {
+        __payload_truncated: true,
+        __original_size_bytes: Buffer.byteLength(serialized, "utf8"),
+        ...(truncatedPayload as Record<string, unknown>),
+      };
+    }
+
+    return {
+      __payload_truncated: true,
+      __original_size_bytes: Buffer.byteLength(serialized, "utf8"),
+      value: truncatedPayload,
+    };
   } catch {
     return { payload_serialization_error: true };
   }

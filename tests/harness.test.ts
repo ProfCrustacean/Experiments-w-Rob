@@ -3,6 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockState = vi.hoisted(() => ({
   runs: new Map<string, { storeId: string; stats: Record<string, unknown>; status?: string }>(),
   recentByStore: new Map<string, Array<{ runId: string; status: string }>>(),
+  benchmarkBuild: {
+    reviewedCount: 0,
+    failCount: 0,
+    passCount: 0,
+    hardCaseCount: 0,
+    recentRunCount: 0,
+    recentProcessedCount: 0,
+    recentNeedsReviewCount: 0,
+    recentAutoAcceptedCount: 0,
+  },
   latestSnapshot: {
     id: "snapshot-1",
     storeId: "store-a",
@@ -12,6 +22,49 @@ const mockState = vi.hoisted(() => ({
     datasetHash: "hash-1",
     createdAt: new Date().toISOString(),
   },
+}));
+
+vi.mock("../src/db/client.js", () => ({
+  getPool: () => ({
+    query: async (text: string) => {
+      if (text.includes("FROM pipeline_qa_feedback")) {
+        return {
+          rows: [
+            {
+              reviewed_count: mockState.benchmarkBuild.reviewedCount,
+              fail_count: mockState.benchmarkBuild.failCount,
+              pass_count: mockState.benchmarkBuild.passCount,
+            },
+          ],
+        };
+      }
+
+      if (text.includes("hard_case_count")) {
+        return {
+          rows: [
+            {
+              hard_case_count: mockState.benchmarkBuild.hardCaseCount,
+            },
+          ],
+        };
+      }
+
+      if (text.includes("recent_runs")) {
+        return {
+          rows: [
+            {
+              run_count: mockState.benchmarkBuild.recentRunCount,
+              processed_count: mockState.benchmarkBuild.recentProcessedCount,
+              needs_review_count: mockState.benchmarkBuild.recentNeedsReviewCount,
+              auto_accepted_count: mockState.benchmarkBuild.recentAutoAcceptedCount,
+            },
+          ],
+        };
+      }
+
+      return { rows: [] };
+    },
+  }),
 }));
 
 vi.mock("../src/config.js", () => ({
@@ -56,7 +109,23 @@ vi.mock("../src/pipeline/persist.js", () => ({
   }),
   getBenchmarkSnapshotById: vi.fn(async () => null),
   getLatestBenchmarkSnapshot: vi.fn(async () => mockState.latestSnapshot),
-  createBenchmarkSnapshot: vi.fn(async () => mockState.latestSnapshot),
+  createBenchmarkSnapshot: vi.fn(
+    async (input: {
+      storeId: string;
+      source: Record<string, unknown>;
+      rowCount: number;
+      sampleSize: number;
+      datasetHash: string;
+    }) => ({
+      id: "snapshot-generated",
+      storeId: input.storeId,
+      source: input.source,
+      rowCount: input.rowCount,
+      sampleSize: input.sampleSize,
+      datasetHash: input.datasetHash,
+      createdAt: new Date().toISOString(),
+    }),
+  ),
 }));
 
 import { evaluateHarnessForRun } from "../src/pipeline/harness.js";
@@ -65,6 +134,16 @@ describe("harness evaluation", () => {
   beforeEach(() => {
     mockState.runs.clear();
     mockState.recentByStore.clear();
+    mockState.benchmarkBuild = {
+      reviewedCount: 0,
+      failCount: 0,
+      passCount: 0,
+      hardCaseCount: 0,
+      recentRunCount: 0,
+      recentProcessedCount: 0,
+      recentNeedsReviewCount: 0,
+      recentAutoAcceptedCount: 0,
+    };
     mockState.latestSnapshot = {
       id: "snapshot-1",
       storeId: "store-a",
@@ -76,11 +155,21 @@ describe("harness evaluation", () => {
     };
   });
 
-  it("fails when benchmark sample is below the configured minimum", async () => {
+  it("auto-refreshes undersized benchmark snapshots so manual rebuilds are not required", async () => {
     mockState.latestSnapshot = {
       ...mockState.latestSnapshot,
       sampleSize: 20,
       rowCount: 20,
+    };
+    mockState.benchmarkBuild = {
+      reviewedCount: 12,
+      failCount: 6,
+      passCount: 6,
+      hardCaseCount: 8,
+      recentRunCount: 3,
+      recentProcessedCount: 120,
+      recentNeedsReviewCount: 20,
+      recentAutoAcceptedCount: 100,
     };
 
     mockState.runs.set("candidate", {
@@ -111,8 +200,9 @@ describe("harness evaluation", () => {
       baselineRunId: "baseline",
     });
 
-    expect(outcome.result.passed).toBe(false);
-    expect(outcome.result.failedMetrics).toContain("benchmark_sample_size");
+    expect(outcome.result.passed).toBe(true);
+    expect(outcome.result.failedMetrics).not.toContain("benchmark_sample_size");
+    expect(outcome.benchmarkSnapshot.sampleSize).toBeGreaterThanOrEqual(50);
   });
 
   it("passes when deltas and rates satisfy thresholds", async () => {
