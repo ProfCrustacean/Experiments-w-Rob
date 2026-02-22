@@ -541,12 +541,14 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
         required: boolean;
       }>;
     };
+    model?: string;
   }): Promise<AttributeExtractionLLMOutput> {
     const sku = "single-item";
     const batchOutput = await this.extractProductAttributesBatch({
       categoryName: input.categoryName,
       categoryDescription: input.categoryDescription,
       attributeSchema: input.attributeSchema,
+      model: input.model,
       products: [
         {
           sourceSku: sku,
@@ -578,7 +580,7 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
 
     this.stats.attribute_batch_call_count += 1;
     const requestBody = {
-      model: this.llmModel,
+      model: input.model ?? this.llmModel,
       response_format: { type: "json_object" as const },
       messages: [
         {
@@ -674,7 +676,7 @@ export class OpenAIProvider implements EmbeddingProvider, LLMProvider {
 
     this.stats.category_disambiguation_call_count += 1;
     const requestBody = {
-      model: this.llmModel,
+      model: input.model ?? this.llmModel,
       response_format: { type: "json_object" as const },
       messages: [
         {

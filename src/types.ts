@@ -142,6 +142,7 @@ export interface BatchAttributeExtractionInput {
   categoryDescription: string;
   attributeSchema: CategoryAttributeSchema;
   products: ProductAttributeExtractionInput[];
+  model?: string;
 }
 
 export interface CategoryDisambiguationInput {
@@ -151,6 +152,7 @@ export interface CategoryDisambiguationInput {
     name_pt: string;
     description_pt: string;
   }>;
+  model?: string;
 }
 
 export interface CategoryDisambiguationOutput {
@@ -174,6 +176,7 @@ export interface LLMProvider {
     categoryName: string;
     categoryDescription: string;
     attributeSchema: CategoryAttributeSchema;
+    model?: string;
   }): Promise<AttributeExtractionLLMOutput>;
   extractProductAttributesBatch(
     input: BatchAttributeExtractionInput,

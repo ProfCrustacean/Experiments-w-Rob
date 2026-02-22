@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FallbackProvider } from "../src/services/fallback.js";
 import { generateEmbeddingsForItems } from "../src/pipeline/embedding.js";
-import { __test_only_ensureVectorLength } from "../src/pipeline/run.js";
+import { __test_only_ensureVectorLength } from "../src/pipeline/run-test-support.js";
 
 describe("embedding", () => {
   it("creates one vector per product with expected dimension", async () => {

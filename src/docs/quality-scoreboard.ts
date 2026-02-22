@@ -22,6 +22,11 @@ interface ScoreboardResult {
   storeScope: string;
   docsErrors: number;
   docsWarnings: number;
+  agentDocCount: number;
+  oversizeDocCount: number;
+  missingSectionCount: number;
+  moduleCoverageRate: number;
+  ownerCoverageRate: number;
 }
 
 interface PipelineRunRow {
@@ -248,6 +253,24 @@ function buildDebtQueue(input: {
   if (input.docsSummary.warnings > 0) {
     debt.push(`Documentation health has ${input.docsSummary.warnings} warning(s) to clean up.`);
   }
+  if (input.docsSummary.oversizeDocCount > 0) {
+    debt.push(`Oversized docs detected (${input.docsSummary.oversizeDocCount}).`);
+  }
+  if (input.docsSummary.missingSectionCount > 0) {
+    debt.push(
+      `Task/module cards are missing required sections (${input.docsSummary.missingSectionCount}).`,
+    );
+  }
+  if (input.docsSummary.moduleCoverageRate < 1) {
+    debt.push(
+      `Module card coverage is incomplete (${(input.docsSummary.moduleCoverageRate * 100).toFixed(1)}%).`,
+    );
+  }
+  if (input.docsSummary.ownerCoverageRate < 1) {
+    debt.push(
+      `Owner mapping coverage is incomplete (${(input.docsSummary.ownerCoverageRate * 100).toFixed(1)}%).`,
+    );
+  }
 
   if (debt.length === 0) {
     debt.push("No active debt items.");
@@ -339,6 +362,21 @@ function buildScoreboardMarkdown(input: {
   );
   lines.push(
     `| Unknown documented scripts | 0 | ${docsUnknownScripts} | ${trend(docsUnknownScripts, null, "down_good", 0)} | \`UNKNOWN_SCRIPT_REF\` findings |`,
+  );
+  lines.push(
+    `| Agent docs tracked | increasing | ${formatCount(input.docsSummary.agentDocCount)} | n/a | Markdown files under \`docs/agents/\` |`,
+  );
+  lines.push(
+    `| Oversize docs | 0 | ${formatCount(input.docsSummary.oversizeDocCount)} | n/a | \`DOC_TOO_LARGE\` findings |`,
+  );
+  lines.push(
+    `| Missing card sections | 0 | ${formatCount(input.docsSummary.missingSectionCount)} | n/a | \`MISSING_REQUIRED_SECTION\` findings |`,
+  );
+  lines.push(
+    `| Module card coverage | 1.0000 | ${formatRate(input.docsSummary.moduleCoverageRate)} | n/a | Required module cards present |`,
+  );
+  lines.push(
+    `| Owner coverage | 1.0000 | ${formatRate(input.docsSummary.ownerCoverageRate)} | n/a | Owner key mapped to ownership map |`,
   );
   lines.push("");
   lines.push("## Open debt queue");
@@ -439,5 +477,10 @@ export async function updateQualityScoreboard(options?: ScoreboardOptions): Prom
     storeScope: storeId ?? "all stores",
     docsErrors: docsSummary.errors,
     docsWarnings: docsSummary.warnings,
+    agentDocCount: docsSummary.agentDocCount,
+    oversizeDocCount: docsSummary.oversizeDocCount,
+    missingSectionCount: docsSummary.missingSectionCount,
+    moduleCoverageRate: docsSummary.moduleCoverageRate,
+    ownerCoverageRate: docsSummary.ownerCoverageRate,
   };
 }

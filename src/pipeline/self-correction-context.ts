@@ -157,10 +157,15 @@ export function evaluateQualityGateFromStats(input: {
   requireCanaryThreshold?: boolean;
 }): {
   passed: boolean;
+  basePassed: boolean;
+  canaryThresholdPassed: boolean;
   failedMetrics: string[];
+  baseFailedMetrics: string[];
   metrics: Record<string, unknown>;
 } {
-  const failedMetrics = extractFailedGateMetrics(input.stats);
+  const baseFailedMetrics = extractFailedGateMetrics(input.stats);
+  const failedMetrics = [...baseFailedMetrics];
+  let canaryThresholdPassed = true;
   const metrics: Record<string, unknown> = {
     auto_accepted_rate: input.stats.auto_accepted_rate ?? null,
     fallback_category_rate: input.stats.fallback_category_rate ?? null,
@@ -172,14 +177,19 @@ export function evaluateQualityGateFromStats(input: {
     const threshold = input.canaryThreshold ?? 0;
     const autoAcceptedRate = asNumber(input.stats.auto_accepted_rate);
     metrics.canary_auto_accepted_threshold = threshold;
+    metrics.canary_auto_accepted_rate = autoAcceptedRate;
     if (autoAcceptedRate === null || autoAcceptedRate < threshold) {
       failedMetrics.push("canary_auto_accepted_rate");
+      canaryThresholdPassed = false;
     }
   }
 
   return {
     passed: failedMetrics.length === 0,
+    basePassed: baseFailedMetrics.length === 0,
+    canaryThresholdPassed,
     failedMetrics: [...new Set(failedMetrics)],
+    baseFailedMetrics: [...new Set(baseFailedMetrics)],
     metrics,
   };
 }

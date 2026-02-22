@@ -1,6 +1,25 @@
 import "dotenv/config";
 import { z } from "zod";
 
+const booleanFromEnv = z.preprocess((value) => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "no", "n", "off", ""].includes(normalized)) {
+      return false;
+    }
+  }
+  return value;
+}, z.boolean());
+
 const envSchema = z.object({
   OPENAI_API_KEY: z.string().min(1).optional(),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
@@ -14,8 +33,14 @@ const envSchema = z.object({
   INPUT_SAMPLE_PARTS: z.coerce.number().int().positive().default(1),
   INPUT_SAMPLE_PART_INDEX: z.coerce.number().int().nonnegative().default(0),
   CATEGORY_PROFILE_CONCURRENCY: z.coerce.number().int().positive().default(8),
-  ATTRIBUTE_BATCH_SIZE: z.coerce.number().int().positive().default(8),
+  ATTRIBUTE_BATCH_SIZE: z.coerce.number().int().positive().default(4),
   ATTRIBUTE_LLM_CONCURRENCY: z.coerce.number().int().positive().default(8),
+  ATTRIBUTE_SECOND_PASS_ENABLED: booleanFromEnv.default(true),
+  ATTRIBUTE_SECOND_PASS_MODEL: z.string().min(1).default("gpt-5-mini"),
+  ATTRIBUTE_SECOND_PASS_BATCH_SIZE: z.coerce.number().int().positive().default(2),
+  ATTRIBUTE_SECOND_PASS_MAX_PRODUCTS: z.coerce.number().int().positive().default(120),
+  ATTRIBUTE_SECOND_PASS_REQUIRED_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.85),
+  ATTRIBUTE_SECOND_PASS_OPTIONAL_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.7),
   EMBEDDING_BATCH_SIZE: z.coerce.number().int().positive().default(50),
   EMBEDDING_CONCURRENCY: z.coerce.number().int().positive().default(10),
   OPENAI_TIMEOUT_MS: z.coerce.number().int().positive().default(25_000),
@@ -39,7 +64,7 @@ const envSchema = z.object({
   CANARY_SAMPLE_SIZE: z.coerce.number().int().positive().default(350),
   CANARY_FIXED_RATIO: z.coerce.number().min(0).max(1).default(0.3),
   CANARY_RANDOM_SEED: z.string().min(1).default("canary-v1"),
-  CANARY_AUTO_ACCEPT_THRESHOLD: z.coerce.number().min(0).max(1).default(0.8),
+  CANARY_AUTO_ACCEPT_THRESHOLD: z.coerce.number().min(0).max(1).default(0.75),
   CANARY_SUBSET_PATH: z.string().min(1).default("outputs/canary_input.csv"),
   CANARY_STATE_PATH: z.string().min(1).default("outputs/canary_state.json"),
   SELF_IMPROVE_MAX_LOOPS: z.coerce.number().int().positive().default(10),
@@ -50,9 +75,10 @@ const envSchema = z.object({
   SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP: z.coerce.number().int().nonnegative().default(2),
   SELF_IMPROVE_GATE_MIN_SAMPLE_SIZE: z.coerce.number().int().positive().default(200),
   SELF_IMPROVE_POST_APPLY_WATCH_LOOPS: z.coerce.number().int().positive().default(2),
-  SELF_IMPROVE_ROLLBACK_ON_DEGRADE: z.coerce.boolean().default(true),
-  SELF_IMPROVE_CANARY_RETRY_DEGRADE_ENABLED: z.coerce.boolean().default(true),
+  SELF_IMPROVE_ROLLBACK_ON_DEGRADE: booleanFromEnv.default(true),
+  SELF_IMPROVE_CANARY_RETRY_DEGRADE_ENABLED: booleanFromEnv.default(true),
   SELF_IMPROVE_CANARY_RETRY_MIN_PROPOSAL_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.75),
+  SELF_IMPROVE_CANARY_PARTIAL_APPLY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.7),
   HARNESS_MIN_L1_DELTA: z.coerce.number().default(0),
   HARNESS_MIN_L2_DELTA: z.coerce.number().default(0),
   HARNESS_MIN_L3_DELTA: z.coerce.number().default(0),
@@ -120,6 +146,24 @@ export function getConfig(): AppConfig {
   if (parsed.data.PRODUCT_VECTOR_QUERY_TIMEOUT_MS > parsed.data.PRODUCT_PERSIST_STAGE_TIMEOUT_MS) {
     throw new Error(
       `Invalid environment configuration: PRODUCT_VECTOR_QUERY_TIMEOUT_MS (${parsed.data.PRODUCT_VECTOR_QUERY_TIMEOUT_MS}) must be <= PRODUCT_PERSIST_STAGE_TIMEOUT_MS (${parsed.data.PRODUCT_PERSIST_STAGE_TIMEOUT_MS}).`,
+    );
+  }
+
+  if (
+    parsed.data.ATTRIBUTE_SECOND_PASS_OPTIONAL_MIN_CONFIDENCE >
+    parsed.data.ATTRIBUTE_SECOND_PASS_REQUIRED_MIN_CONFIDENCE
+  ) {
+    throw new Error(
+      `Invalid environment configuration: ATTRIBUTE_SECOND_PASS_OPTIONAL_MIN_CONFIDENCE (${parsed.data.ATTRIBUTE_SECOND_PASS_OPTIONAL_MIN_CONFIDENCE}) must be <= ATTRIBUTE_SECOND_PASS_REQUIRED_MIN_CONFIDENCE (${parsed.data.ATTRIBUTE_SECOND_PASS_REQUIRED_MIN_CONFIDENCE}).`,
+    );
+  }
+
+  if (
+    parsed.data.SELF_IMPROVE_CANARY_PARTIAL_APPLY_THRESHOLD >
+    parsed.data.CANARY_AUTO_ACCEPT_THRESHOLD
+  ) {
+    throw new Error(
+      `Invalid environment configuration: SELF_IMPROVE_CANARY_PARTIAL_APPLY_THRESHOLD (${parsed.data.SELF_IMPROVE_CANARY_PARTIAL_APPLY_THRESHOLD}) must be <= CANARY_AUTO_ACCEPT_THRESHOLD (${parsed.data.CANARY_AUTO_ACCEPT_THRESHOLD}).`,
     );
   }
 

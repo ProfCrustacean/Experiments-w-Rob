@@ -165,4 +165,80 @@ describe("openai telemetry", () => {
     expect(embeddingSuccess?.payload?.response_metadata).toBeTruthy();
     expect(embeddingSuccess?.payload?.response_body).toBeUndefined();
   });
+
+  it("uses per-call model override for attribute extraction batches", async () => {
+    const events: OpenAITelemetryEvent[] = [];
+    const provider = createProvider(events);
+    let receivedModel = "";
+
+    (provider as unknown as { client: unknown }).client = {
+      chat: {
+        completions: {
+          create: async (input: { model: string }) => {
+            receivedModel = input.model;
+            return {
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      results: [
+                        {
+                          source_sku: "sku-1",
+                          values: { format: "A4" },
+                          confidence: { format: 0.92 },
+                        },
+                      ],
+                    }),
+                  },
+                },
+              ],
+            };
+          },
+        },
+      },
+      embeddings: {
+        create: async () => ({ data: [] }),
+      },
+    };
+
+    const output = await provider.extractProductAttributesBatch({
+      categoryName: "caderno a4",
+      categoryDescription: "cadernos escolares",
+      model: "gpt-4.1",
+      attributeSchema: {
+        schema_version: "1.0",
+        category_name_pt: "caderno a4",
+        attributes: [
+          {
+            key: "format",
+            label_pt: "formato",
+            type: "enum",
+            allowed_values: ["A4", "A5"],
+            required: false,
+          },
+        ],
+      },
+      products: [
+        {
+          sourceSku: "sku-1",
+          product: {
+            title: "Caderno A4",
+            description: "Pautado",
+            brand: "Note",
+          },
+        },
+      ],
+    });
+
+    expect(receivedModel).toBe("gpt-4.1");
+    expect(output["sku-1"]?.values?.format).toBe("A4");
+
+    const started = events.find(
+      (event) =>
+        event.event === "openai.call.started" &&
+        event.payload?.call_kind === "attribute_batch",
+    );
+    const requestBody = started?.payload?.request_body as Record<string, unknown> | undefined;
+    expect(requestBody?.model).toBe("gpt-4.1");
+  });
 });

@@ -107,7 +107,7 @@ vi.mock("../src/config.js", () => ({
     CANARY_SAMPLE_SIZE: 10,
     CANARY_FIXED_RATIO: 0.3,
     CANARY_RANDOM_SEED: "seed",
-    CANARY_AUTO_ACCEPT_THRESHOLD: 0.8,
+    CANARY_AUTO_ACCEPT_THRESHOLD: 0.75,
     CANARY_SUBSET_PATH: "outputs/canary_input.csv",
     CANARY_STATE_PATH: "outputs/canary_state.json",
     SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP: 2,

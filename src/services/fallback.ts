@@ -85,6 +85,7 @@ export class FallbackProvider implements EmbeddingProvider, LLMProvider {
         required: boolean;
       }>;
     };
+    model?: string;
   }): Promise<AttributeExtractionLLMOutput> {
     const values: Record<string, string | number | boolean | null> = {};
     const confidence: Record<string, number> = {};

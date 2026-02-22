@@ -2,18 +2,10 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import type { PoolClient } from "pg";
 import { getPool } from "../db/client.js";
 import type {
   AppliedChangeRecord,
-  CategoryDraft,
   HarnessEvalResult,
-  NormalizedCatalogProduct,
-  PipelineRunLogRow,
-  PersistedCategory,
-  PersistedProduct,
-  ProductEnrichment,
-  RunArtifactFormat,
   SelfImproveProposal,
   SelfImproveProposalKind,
   SelfImproveProposalPayload,
@@ -24,8 +16,6 @@ import type {
   SelfImproveLoopType,
   SelfImproveRunStatus,
 } from "../types.js";
-import { vectorToSqlLiteral } from "./embedding.js";
-import { artifactKeyToFormat, type RunArtifactKey } from "./run-artifacts.js";
 import {
   applyProposalPayloadToRules,
   dedupeTerms,
@@ -33,31 +23,6 @@ import {
   writeCategoryRulesFile,
   type CategoryRuleFile,
 } from "./rule-patch.js";
-
-export interface StoredRunArtifact {
-  key: string;
-  fileName: string;
-  format: RunArtifactFormat;
-  mimeType: string;
-  sizeBytes: number;
-  expiresAt: string;
-  createdAt: string;
-}
-
-export interface StoredRunArtifactWithContent extends StoredRunArtifact {
-  content: Buffer;
-}
-
-export interface PipelineRunListItem {
-  runId: string;
-  storeId: string;
-  inputFileName: string;
-  runLabel: string | null;
-  status: string;
-  startedAt: string;
-  finishedAt: string | null;
-  stats: Record<string, unknown>;
-}
 
 export interface SelfImprovementBatchSummary {
   total_loops?: number;
@@ -108,17 +73,6 @@ export interface SelfImprovementBatchDetails extends SelfImprovementBatchListIte
 export interface StaleSelfImprovementRecoveryResult {
   recoveredRuns: number;
   requeuedBatches: number;
-}
-
-interface PipelineRunQueryRow {
-  id: string;
-  store_id: string;
-  input_file_name: string;
-  run_label: string | null;
-  status: string;
-  started_at: Date | string;
-  finished_at: Date | string | null;
-  stats_json: Record<string, unknown>;
 }
 
 interface SelfImprovementBatchQueryRow {
@@ -203,11 +157,6 @@ const CATEGORY_RULES_FILE_PATH = path.resolve(__dirname, "../taxonomy/category_m
 function toIsoString(value: Date | string): string {
   const date = value instanceof Date ? value : new Date(value);
   return date.toISOString();
-}
-
-function toEpochMs(value: Date | string): number {
-  const date = value instanceof Date ? value : new Date(value);
-  return date.getTime();
 }
 export async function enqueueSelfImprovementBatch(input: {
   requestedCount: number;
@@ -1497,19 +1446,6 @@ export async function listRecentHarnessRuns(input?: {
     candidateRunId: row.candidate_run_id,
     createdAt: toIsoString(row.created_at),
   }));
-}
-
-function mapPipelineRunRow(row: PipelineRunQueryRow): PipelineRunListItem {
-  return {
-    runId: row.id,
-    storeId: row.store_id,
-    inputFileName: row.input_file_name,
-    runLabel: row.run_label,
-    status: row.status,
-    startedAt: toIsoString(row.started_at),
-    finishedAt: row.finished_at ? toIsoString(row.finished_at) : null,
-    stats: row.stats_json ?? {},
-  };
 }
 
 function mapSelfImprovementBatchRow(row: SelfImprovementBatchQueryRow): SelfImprovementBatchListItem {

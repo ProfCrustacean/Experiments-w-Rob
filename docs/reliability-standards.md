@@ -1,47 +1,36 @@
 # Reliability Standards
 
-## Goal
+Safety and quality standards for pipeline execution and learning loops.
 
-Ensure learning changes improve quality safely and can be reverted quickly.
+## Required Standards
 
-## Operational standards
+- Blocking docs gate on PRs.
+- Daily docs-garden schedule.
+- Harness checks before auto-apply.
+- Bounded retries and bounded loop counts.
 
-- Loop mode: queued async worker.
-- Max loops per request: 10.
-- Retry policy: one retry per failed loop.
-- Auto-apply policy: only when gate/harness checks pass.
-- Structural apply cap: max 2 structural changes per loop.
-- Rollback watch window: next 2 loops after apply.
+## Quality Targets
 
-## Gate thresholds (defaults)
+- `HARNESS_MAX_FALLBACK_RATE`
+- `HARNESS_MAX_NEEDS_REVIEW_RATE`
+- `CANARY_AUTO_ACCEPT_THRESHOLD`
+- `SELF_IMPROVE_GATE_MIN_SAMPLE_SIZE`
 
-- `HARNESS_MIN_L1_DELTA=0`
-- `HARNESS_MIN_L2_DELTA=0`
-- `HARNESS_MIN_L3_DELTA=0`
-- `HARNESS_MAX_FALLBACK_RATE=0.06`
-- `HARNESS_MAX_NEEDS_REVIEW_RATE=0.35`
-- `SELF_IMPROVE_GATE_MIN_SAMPLE_SIZE=200`
+See live values in `docs/quality-scoreboard.md`.
 
-## Failure handling expectations
+## Docs Reliability Requirements
 
-- Single loop failure must not stop the batch.
-- Retry once, then continue with next sequence.
-- Batch fails only for worker-level fatal errors.
-- Post-apply degrade should trigger rollback when enabled.
+- Required docs must exist and be linked.
+- Agent maps/task/module cards must remain navigable.
+- Owner coverage and module-card coverage must remain complete.
 
-## Documentation reliability requirements
+## Escalation
 
-- All documented commands must exist in `package.json` scripts.
-- All documented local file paths must resolve.
-- Core runbook docs must exist and be linked from README.
-- Docs checks run on PRs and on daily gardening schedule.
-- `docs/quality-scoreboard.md` must be refreshed at least every 48 hours.
+- If `npm run docs:check` fails, fix in the same change set.
+- If metrics regress, create/update debt items in `docs/quality-scoreboard.md`.
 
-## Documentation SLA and escalation
+## Deep Links
 
-- SLA: fix docs-check errors within 24 hours.
-- SLA: reduce docs-check warnings within 3 business days.
-- Escalation path:
-  - docs-garden opens a debt issue automatically when checks fail
-  - optional repo variable `DOCS_OWNER` auto-assigns the issue
-  - workflow failure blocks “healthy” status until fixed
+- Docs policy: `docs/governance/docs-policy.md`
+- Docs check spec: `docs/governance/docs-check-spec.md`
+

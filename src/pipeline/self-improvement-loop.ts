@@ -46,7 +46,10 @@ export interface LoopAttemptResult {
   retryableFailure: boolean;
   qualityGate: {
     passed: boolean;
+    basePassed: boolean;
+    canaryThresholdPassed: boolean;
     failedMetrics: string[];
+    baseFailedMetrics: string[];
     metrics: Record<string, unknown>;
   };
   harnessPassed: boolean;
@@ -59,6 +62,11 @@ export interface LoopAttemptResult {
 function asNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function asOptionalNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function clampConfidence(value: number): number {
@@ -275,6 +283,130 @@ function hasHighSeveritySchemaViolations(
   });
 }
 
+type LearningApplyMode = "none" | "partial_low_risk" | "full";
+
+interface LearningApplyDecision {
+  mode: LearningApplyMode;
+  shouldApply: boolean;
+  maxStructuralChangesPerLoop: number;
+  reason: string;
+}
+
+function decideLearningApplyMode(input: {
+  loopType: SelfImproveLoopType;
+  autoApplyPolicy: SelfImprovementBatchListItem["autoApplyPolicy"];
+  harnessPassed: boolean;
+  qualityGatePassed: boolean;
+  qualityGateBasePassed: boolean;
+  highSeveritySchemaViolations: boolean;
+  canaryAutoAcceptedRate: number | null;
+  canaryFullApplyThreshold: number;
+  canaryPartialApplyThreshold: number;
+  canaryRetryDegradeMode: boolean;
+  maxStructuralChangesPerLoop: number;
+}): LearningApplyDecision {
+  if (input.autoApplyPolicy !== "if_gate_passes") {
+    return {
+      mode: "none",
+      shouldApply: false,
+      maxStructuralChangesPerLoop: 0,
+      reason: "auto_apply_policy_not_supported",
+    };
+  }
+
+  if (!input.harnessPassed) {
+    return {
+      mode: "none",
+      shouldApply: false,
+      maxStructuralChangesPerLoop: 0,
+      reason: "harness_failed",
+    };
+  }
+
+  if (input.highSeveritySchemaViolations) {
+    return {
+      mode: "none",
+      shouldApply: false,
+      maxStructuralChangesPerLoop: 0,
+      reason: "high_severity_schema_violations",
+    };
+  }
+
+  if (input.loopType !== "canary") {
+    if (!input.qualityGatePassed) {
+      return {
+        mode: "none",
+        shouldApply: false,
+        maxStructuralChangesPerLoop: 0,
+        reason: "quality_gate_failed",
+      };
+    }
+
+    return {
+      mode: "full",
+      shouldApply: true,
+      maxStructuralChangesPerLoop: input.maxStructuralChangesPerLoop,
+      reason: "full_loop_gate_passed",
+    };
+  }
+
+  if (input.qualityGatePassed) {
+    return {
+      mode: "full",
+      shouldApply: true,
+      maxStructuralChangesPerLoop: input.canaryRetryDegradeMode
+        ? 0
+        : input.maxStructuralChangesPerLoop,
+      reason: "canary_full_gate_passed",
+    };
+  }
+
+  if (!input.qualityGateBasePassed) {
+    return {
+      mode: "none",
+      shouldApply: false,
+      maxStructuralChangesPerLoop: 0,
+      reason: "quality_base_gate_failed",
+    };
+  }
+
+  if (input.canaryAutoAcceptedRate === null) {
+    return {
+      mode: "none",
+      shouldApply: false,
+      maxStructuralChangesPerLoop: 0,
+      reason: "missing_canary_auto_accepted_rate",
+    };
+  }
+
+  if (input.canaryAutoAcceptedRate < input.canaryPartialApplyThreshold) {
+    return {
+      mode: "none",
+      shouldApply: false,
+      maxStructuralChangesPerLoop: 0,
+      reason: "below_partial_apply_threshold",
+    };
+  }
+
+  if (input.canaryAutoAcceptedRate < input.canaryFullApplyThreshold) {
+    return {
+      mode: "partial_low_risk",
+      shouldApply: true,
+      maxStructuralChangesPerLoop: 0,
+      reason: "partial_low_risk_band",
+    };
+  }
+
+  return {
+    mode: "full",
+    shouldApply: true,
+    maxStructuralChangesPerLoop: input.canaryRetryDegradeMode
+      ? 0
+      : input.maxStructuralChangesPerLoop,
+    reason: "full_apply_threshold_met",
+  };
+}
+
 export async function runLoopAttempt(input: {
   batch: SelfImprovementBatchListItem;
   sequenceNo: number;
@@ -305,6 +437,7 @@ export async function runLoopAttempt(input: {
     requireCanaryThreshold: input.batch.loopType === "canary",
     canaryThreshold: input.batch.loopType === "canary" ? env.canaryAutoAcceptThreshold : undefined,
   });
+  const canaryAutoAcceptedRate = asOptionalNumber(loopRun.stats.auto_accepted_rate);
 
   const alerts = parseAlerts(loopRun.stats.top_confusion_alerts);
   const mergedFailedMetrics = [...new Set([...qualityGate.failedMetrics, ...input.previousFailedMetrics])];
@@ -332,20 +465,26 @@ export async function runLoopAttempt(input: {
     result: harnessEvaluation.result,
   });
 
-  const shouldAutoApply =
-    input.batch.autoApplyPolicy === "if_gate_passes" &&
-    qualityGate.passed &&
-    harnessEvaluation.result.passed &&
-    !highSeveritySchemaViolations;
+  const applyDecision = decideLearningApplyMode({
+    loopType: input.batch.loopType,
+    autoApplyPolicy: input.batch.autoApplyPolicy,
+    harnessPassed: harnessEvaluation.result.passed,
+    qualityGatePassed: qualityGate.passed,
+    qualityGateBasePassed: qualityGate.basePassed,
+    highSeveritySchemaViolations,
+    canaryAutoAcceptedRate,
+    canaryFullApplyThreshold: env.canaryAutoAcceptThreshold,
+    canaryPartialApplyThreshold: config.SELF_IMPROVE_CANARY_PARTIAL_APPLY_THRESHOLD,
+    canaryRetryDegradeMode,
+    maxStructuralChangesPerLoop: config.SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP,
+  });
 
-  const applyResult = shouldAutoApply
+  const applyResult = applyDecision.shouldApply
     ? await applyLearningProposals({
         batchId: input.batch.id,
         runId: loopRun.runId,
         harnessResult: harnessEvaluation.result,
-        maxStructuralChangesPerLoop: canaryRetryDegradeMode
-          ? 0
-          : config.SELF_IMPROVE_MAX_STRUCTURAL_CHANGES_PER_LOOP,
+        maxStructuralChangesPerLoop: applyDecision.maxStructuralChangesPerLoop,
       })
     : {
         considered: 0,
@@ -392,10 +531,32 @@ export async function runLoopAttempt(input: {
       harness_failed_metrics: harnessEvaluation.result.failedMetrics,
       harness_metric_scores: harnessEvaluation.result.metricScores,
       high_severity_schema_violations: highSeveritySchemaViolations,
+      apply_gate_mode: applyDecision.mode,
+      apply_gate_reason: applyDecision.reason,
+      quality_gate_base_passed: qualityGate.basePassed,
+      canary_auto_accepted_rate: canaryAutoAcceptedRate,
+      canary_partial_apply_threshold: config.SELF_IMPROVE_CANARY_PARTIAL_APPLY_THRESHOLD,
+      canary_full_apply_threshold: env.canaryAutoAcceptThreshold,
       candidate_fixes: proposalResult.proposals.map((proposal) => proposal.payload.reason),
       canary_retry_degrade_mode: canaryRetryDegradeMode,
       proposal_min_confidence: proposalMinConfidence,
       structural_proposals_allowed: structuralProposalsAllowed,
     },
   };
+}
+
+export function __test_only_decideLearningApplyMode(input: {
+  loopType: SelfImproveLoopType;
+  autoApplyPolicy: SelfImprovementBatchListItem["autoApplyPolicy"];
+  harnessPassed: boolean;
+  qualityGatePassed: boolean;
+  qualityGateBasePassed: boolean;
+  highSeveritySchemaViolations: boolean;
+  canaryAutoAcceptedRate: number | null;
+  canaryFullApplyThreshold: number;
+  canaryPartialApplyThreshold: number;
+  canaryRetryDegradeMode: boolean;
+  maxStructuralChangesPerLoop: number;
+}): LearningApplyDecision {
+  return decideLearningApplyMode(input);
 }

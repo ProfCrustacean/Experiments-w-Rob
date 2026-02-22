@@ -15,6 +15,11 @@ export interface DocsCheckSummary {
   errors: number;
   warnings: number;
   findings: DocsFinding[];
+  agentDocCount: number;
+  oversizeDocCount: number;
+  missingSectionCount: number;
+  moduleCoverageRate: number;
+  ownerCoverageRate: number;
 }
 
 export interface DocsCheckOptions {
@@ -24,12 +29,47 @@ export interface DocsCheckOptions {
 }
 
 export const REQUIRED_DOC_PATHS = [
+  "docs/index.md",
   "docs/self-improvement-runbook.md",
   "docs/system-architecture.md",
   "docs/reliability-standards.md",
   "docs/decisions-log.md",
   "docs/quality-scoreboard.md",
+  "docs/governance/docs-policy.md",
+  "docs/governance/docs-check-spec.md",
 ] as const;
+
+const AGENT_INDEX_PATH = "docs/agents/index.md";
+const OWNERSHIP_MAP_PATH = "docs/agents/maps/ownership-map.md";
+const SYSTEM_MAP_PATH = "docs/agents/maps/system-map.md";
+
+const REQUIRED_SECTION_HEADERS = [
+  "Purpose",
+  "When To Use",
+  "Inputs",
+  "Outputs",
+  "Steps",
+  "Failure Signals",
+  "Related Files",
+  "Related Commands",
+  "Last Verified",
+] as const;
+
+const REQUIRED_SELF_IMPROVEMENT_MODULES = [
+  "self-improvement-orchestrator",
+  "self-improvement-loop",
+  "learning-proposal-generator",
+  "learning-apply",
+  "learning-rollback",
+  "persist-self-improvement",
+] as const;
+
+const LINE_LIMITS = {
+  taskCard: 140,
+  moduleCard: 120,
+  mapDoc: 180,
+  entrypoint: 220,
+} as const;
 
 function addFinding(
   findings: DocsFinding[],
@@ -42,6 +82,10 @@ function addFinding(
     code,
     message,
   });
+}
+
+function normalizeFilePath(filePath: string): string {
+  return filePath.split(path.sep).join("/");
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -72,7 +116,7 @@ function extractPathRefs(markdown: string): string[] {
 
   for (const match of markdown.matchAll(regex)) {
     const ref = match[1]?.trim();
-    if (!ref || ref.includes("<") || ref.includes(">")) {
+    if (!ref || ref.includes("<") || ref.includes(">") || ref.includes("*")) {
       continue;
     }
     refs.add(ref);
@@ -136,19 +180,141 @@ function parseScoreboardUpdatedAt(markdown: string): Date | null {
   return parsed;
 }
 
-async function listMarkdownFilesInDocs(): Promise<string[]> {
-  const docsDir = "docs";
-  if (!(await pathExists(docsDir))) {
+function extractOwnerFromDoc(markdown: string): string | null {
+  const match = markdown.match(/^Owner:\s*([a-z0-9][a-z0-9-_]*)\s*$/im);
+  return match?.[1] ?? null;
+}
+
+function extractOwnerKeysFromMap(markdown: string): Set<string> {
+  const keys = new Set<string>();
+  const regex = /-\s*`([a-z0-9][a-z0-9-_]*)`\s*:/g;
+  for (const match of markdown.matchAll(regex)) {
+    const key = match[1];
+    if (key) {
+      keys.add(key);
+    }
+  }
+  return keys;
+}
+
+function extractArchitecturePaths(markdown: string): Set<string> {
+  const paths = new Set<string>();
+  const regex = /src\/[A-Za-z0-9_./-]+\.ts/g;
+  for (const match of markdown.matchAll(regex)) {
+    const value = match[0];
+    if (value) {
+      paths.add(value);
+    }
+  }
+  return paths;
+}
+
+function lineCount(markdown: string): number {
+  return markdown.split(/\r?\n/).length;
+}
+
+function missingRequiredSections(markdown: string): string[] {
+  const missing: string[] = [];
+  for (const section of REQUIRED_SECTION_HEADERS) {
+    if (!markdown.includes(`## ${section}`)) {
+      missing.push(section);
+    }
+  }
+  return missing;
+}
+
+function isTaskCard(filePath: string): boolean {
+  return filePath.startsWith("docs/agents/task-cards/");
+}
+
+function isModuleCard(filePath: string): boolean {
+  return filePath.startsWith("docs/agents/module-cards/");
+}
+
+function isMapDoc(filePath: string): boolean {
+  return filePath.startsWith("docs/agents/maps/");
+}
+
+function isTopLevelDocsFile(filePath: string): boolean {
+  return /^docs\/[^/]+\.md$/.test(filePath);
+}
+
+function requiresOwner(filePath: string): boolean {
+  return isTaskCard(filePath) || isModuleCard(filePath) || isMapDoc(filePath);
+}
+
+function lineLimitFor(filePath: string): number | null {
+  if (isTaskCard(filePath)) {
+    return LINE_LIMITS.taskCard;
+  }
+  if (isModuleCard(filePath)) {
+    return LINE_LIMITS.moduleCard;
+  }
+  if (isMapDoc(filePath)) {
+    return LINE_LIMITS.mapDoc;
+  }
+  if (filePath === "README.md" || isTopLevelDocsFile(filePath)) {
+    return LINE_LIMITS.entrypoint;
+  }
+  return null;
+}
+
+async function listMarkdownFilesInDocsRecursive(dirPath: string): Promise<string[]> {
+  if (!(await pathExists(dirPath))) {
     return [];
   }
 
-  const entries = await readdir(docsDir, {
+  const entries = await readdir(dirPath, {
     withFileTypes: true,
   });
 
-  return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map((entry) => path.join(docsDir, entry.name));
+  const files: string[] = [];
+  for (const entry of entries) {
+    const absolute = path.join(dirPath, entry.name);
+    const normalized = normalizeFilePath(absolute);
+    if (entry.isDirectory()) {
+      files.push(...(await listMarkdownFilesInDocsRecursive(normalized)));
+      continue;
+    }
+    if (entry.isFile() && normalized.endsWith(".md")) {
+      files.push(normalized);
+    }
+  }
+
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
+async function expectedModuleCardPaths(): Promise<string[]> {
+  const expected: string[] = [];
+
+  const pipelineDir = "src/pipeline";
+  if (await pathExists(pipelineDir)) {
+    const entries = await readdir(pipelineDir, {
+      withFileTypes: true,
+    });
+
+    for (const entry of entries) {
+      if (!entry.isFile()) {
+        continue;
+      }
+      if (!/^run-stage-.*\.ts$/.test(entry.name) && entry.name !== "run-support.ts") {
+        continue;
+      }
+      const base = entry.name.replace(/\.ts$/, "");
+      expected.push(`docs/agents/module-cards/pipeline/${base}.md`);
+    }
+  }
+
+  for (const moduleName of REQUIRED_SELF_IMPROVEMENT_MODULES) {
+    const sourcePath = `src/pipeline/${moduleName}.ts`;
+    if (!(await pathExists(sourcePath))) {
+      continue;
+    }
+    expected.push(`docs/agents/module-cards/self-improvement/${moduleName}.md`);
+  }
+
+  expected.sort((left, right) => left.localeCompare(right));
+  return expected;
 }
 
 export async function runDocsChecks(options?: DocsCheckOptions): Promise<DocsCheckSummary> {
@@ -167,11 +333,14 @@ export async function runDocsChecks(options?: DocsCheckOptions): Promise<DocsChe
     const scoreboardPath = "docs/quality-scoreboard.md";
     const maxScoreboardAgeHours = options?.maxScoreboardAgeHours ?? 48;
 
-    const docsFiles = await listMarkdownFilesInDocs();
+    const docsFiles = await listMarkdownFilesInDocsRecursive("docs");
     const markdownFiles = [readmePath, ...docsFiles];
 
     const markdownByFile = new Map<string, string>();
     for (const filePath of markdownFiles) {
+      if (!(await pathExists(filePath))) {
+        continue;
+      }
       const content = await readFile(filePath, "utf8");
       markdownByFile.set(filePath, content);
     }
@@ -190,19 +359,35 @@ export async function runDocsChecks(options?: DocsCheckOptions): Promise<DocsChe
       }
     }
 
+    if (!(await pathExists(AGENT_INDEX_PATH))) {
+      addFinding(
+        findings,
+        "error",
+        "MISSING_AGENT_INDEX",
+        `${AGENT_INDEX_PATH} is required for agent-first navigation.`,
+      );
+    }
+
     const allCommandRefs = new Set<string>();
     const allPathRefs = new Set<string>();
     const allEnvVars = new Set<string>();
+    const envReferenceDocs = new Set<string>([
+      "README.md",
+      "docs/self-improvement-runbook.md",
+      "docs/reliability-standards.md",
+    ]);
 
-    for (const content of markdownByFile.values()) {
+    for (const [filePath, content] of markdownByFile.entries()) {
       for (const command of extractCommandRefs(content)) {
         allCommandRefs.add(command);
       }
       for (const ref of extractPathRefs(content)) {
         allPathRefs.add(ref);
       }
-      for (const envVar of extractDocumentedEnvVars(content)) {
-        allEnvVars.add(envVar);
+      if (envReferenceDocs.has(filePath)) {
+        for (const envVar of extractDocumentedEnvVars(content)) {
+          allEnvVars.add(envVar);
+        }
       }
     }
 
@@ -251,16 +436,128 @@ export async function runDocsChecks(options?: DocsCheckOptions): Promise<DocsChe
       }
     }
 
-    for (const requiredDoc of REQUIRED_DOC_PATHS) {
-      if (readme.includes(requiredDoc)) {
+    const requiredReadmeRefs = [...REQUIRED_DOC_PATHS, AGENT_INDEX_PATH];
+    for (const requiredRef of requiredReadmeRefs) {
+      if (readme.includes(requiredRef)) {
         continue;
       }
       addFinding(
         findings,
         "warn",
         "README_DOC_MAP_GAP",
-        `README.md does not reference ${requiredDoc}.`,
+        `README.md does not reference ${requiredRef}.`,
       );
+    }
+
+    const agentDocCount = docsFiles.filter((filePath) => filePath.startsWith("docs/agents/")).length;
+
+    const oversizeDocPaths = new Set<string>();
+    let missingSectionCount = 0;
+    let ownerRequiredCount = 0;
+    let ownerMappedCount = 0;
+
+    const ownershipMapContent = markdownByFile.get(OWNERSHIP_MAP_PATH) ?? "";
+    const ownershipKeys = extractOwnerKeysFromMap(ownershipMapContent);
+
+    for (const [filePath, content] of markdownByFile.entries()) {
+      const lineLimit = lineLimitFor(filePath);
+      if (lineLimit !== null) {
+        const lines = lineCount(content);
+        if (lines > lineLimit) {
+          oversizeDocPaths.add(filePath);
+          addFinding(
+            findings,
+            "error",
+            "DOC_TOO_LARGE",
+            `${filePath} has ${lines} lines and exceeds the ${lineLimit} line limit.`,
+          );
+        }
+      }
+
+      if (isTaskCard(filePath) || isModuleCard(filePath)) {
+        const missingSections = missingRequiredSections(content);
+        if (missingSections.length > 0) {
+          missingSectionCount += missingSections.length;
+          addFinding(
+            findings,
+            "error",
+            "MISSING_REQUIRED_SECTION",
+            `${filePath} is missing required section(s): ${missingSections.join(", ")}.`,
+          );
+        }
+      }
+
+      if (requiresOwner(filePath)) {
+        ownerRequiredCount += 1;
+        const owner = extractOwnerFromDoc(content);
+        if (!owner) {
+          addFinding(
+            findings,
+            "error",
+            "OWNER_MISSING",
+            `${filePath} is missing an 'Owner: <key>' line.`,
+          );
+          continue;
+        }
+
+        if (!ownershipKeys.has(owner)) {
+          addFinding(
+            findings,
+            "error",
+            "OWNER_UNMAPPED",
+            `${filePath} uses owner '${owner}', which is not defined in ${OWNERSHIP_MAP_PATH}.`,
+          );
+          continue;
+        }
+
+        ownerMappedCount += 1;
+      }
+    }
+
+    const taskCardFiles = docsFiles.filter((filePath) => isTaskCard(filePath));
+    const agentsIndexContent = markdownByFile.get(AGENT_INDEX_PATH);
+    if (agentsIndexContent) {
+      for (const taskCardPath of taskCardFiles) {
+        if (!agentsIndexContent.includes(taskCardPath)) {
+          addFinding(
+            findings,
+            "error",
+            "TASK_CARD_ORPHANED",
+            `${taskCardPath} is not linked from ${AGENT_INDEX_PATH}.`,
+          );
+        }
+      }
+    }
+
+    const expectedModuleCards = await expectedModuleCardPaths();
+    let moduleCardsPresent = 0;
+    for (const moduleCardPath of expectedModuleCards) {
+      if (await pathExists(moduleCardPath)) {
+        moduleCardsPresent += 1;
+        continue;
+      }
+      addFinding(
+        findings,
+        "error",
+        "MODULE_CARD_MISSING",
+        `${moduleCardPath} is required because the source module exists.`,
+      );
+    }
+
+    const architectureMap = markdownByFile.get(SYSTEM_MAP_PATH);
+    if (architectureMap) {
+      const architecturePaths = extractArchitecturePaths(architectureMap);
+      for (const sourcePath of architecturePaths) {
+        if (await pathExists(sourcePath)) {
+          continue;
+        }
+        addFinding(
+          findings,
+          "error",
+          "ARCHITECTURE_DRIFT",
+          `${SYSTEM_MAP_PATH} references '${sourcePath}', but that source file does not exist.`,
+        );
+      }
     }
 
     if (!options?.skipScoreboardFreshness && (await pathExists(scoreboardPath))) {
@@ -290,12 +587,21 @@ export async function runDocsChecks(options?: DocsCheckOptions): Promise<DocsChe
     const errors = findings.filter((finding) => finding.severity === "error").length;
     const warnings = findings.filter((finding) => finding.severity === "warn").length;
 
+    const moduleCoverageRate =
+      expectedModuleCards.length === 0 ? 1 : moduleCardsPresent / expectedModuleCards.length;
+    const ownerCoverageRate = ownerRequiredCount === 0 ? 1 : ownerMappedCount / ownerRequiredCount;
+
     return {
       checkedAt: new Date().toISOString(),
       filesScanned: markdownFiles,
       errors,
       warnings,
       findings,
+      agentDocCount,
+      oversizeDocCount: oversizeDocPaths.size,
+      missingSectionCount,
+      moduleCoverageRate,
+      ownerCoverageRate,
     };
   } finally {
     if (options?.cwd) {
@@ -312,6 +618,11 @@ export function toMarkdownReport(summary: DocsCheckSummary): string {
   lines.push(`- Files scanned: ${summary.filesScanned.length}`);
   lines.push(`- Errors: ${summary.errors}`);
   lines.push(`- Warnings: ${summary.warnings}`);
+  lines.push(`- Agent docs tracked: ${summary.agentDocCount}`);
+  lines.push(`- Oversize docs: ${summary.oversizeDocCount}`);
+  lines.push(`- Missing required sections: ${summary.missingSectionCount}`);
+  lines.push(`- Module coverage rate: ${summary.moduleCoverageRate.toFixed(4)}`);
+  lines.push(`- Owner coverage rate: ${summary.ownerCoverageRate.toFixed(4)}`);
   lines.push("");
 
   if (summary.findings.length === 0) {
