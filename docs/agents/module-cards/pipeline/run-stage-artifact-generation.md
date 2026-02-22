@@ -4,42 +4,48 @@ Owner: pipeline-flow-owner
 
 ## Purpose
 
-Build final downloadable artifacts from run outputs and quality metrics.
+Create canonical run artifacts and summary metadata with retention timestamps.
 
 ## When To Use
 
-After metrics are available and before artifact persistence/cleanup.
+After metrics are finalized and before artifact persistence.
 
 ## Inputs
 
-Run metadata, product/enrichment/category maps, QA and hotlist CSV content, quality counters.
+- Run identity, processed data, QA/confusion CSV content
+- Quality metrics, histogram/distribution summaries, taxonomy version
+- OpenAI stats, attribute batch stats, stage timings
+- `artifactRetentionHours`, `startedAt`, `logger`
 
 ## Outputs
 
-Artifact payloads, artifact summaries, artifact expiration timestamps.
+- `artifacts` payload list
+- `artifactSummaries`
+- `artifactsExpireAt`
 
 ## Steps
 
-1. Build report artifact payloads.\n2. Compute expiry timestamps.\n3. Log artifact generation stage metrics.
+1. Compute run finish timestamp and artifact expiry timestamp.
+2. Build full artifact payloads and summaries via `buildRunArtifacts(...)`.
+3. Log artifact generation stage duration and artifact count.
 
 ## Failure Signals
 
-Artifact payload build failure, invalid artifact summary metadata, missing expected artifact keys.
+- Artifact payload build errors.
+- Missing required artifact summary fields.
+- Unexpected artifact count or malformed CSV payloads.
 
 ## Related Files
 
-- 
-- 
+- `src/pipeline/run-stage-artifact-generation.ts`
+- `src/pipeline/run-artifacts.ts`
+- `src/pipeline/run.ts`
 
 ## Related Commands
 
-- 
-> experiments-w-rob@0.1.0 pipeline
-> tsx src/cli/pipeline.ts\n- 
-> experiments-w-rob@0.1.0 report:list
-> tsx src/cli/report-list.ts
+- `npm run pipeline`
+- `npm run report:list`
 
 ## Last Verified
 
 - 2026-02-22
-

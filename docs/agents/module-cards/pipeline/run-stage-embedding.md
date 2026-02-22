@@ -4,40 +4,50 @@ Owner: pipeline-flow-owner
 
 ## Purpose
 
-Create embedding text payloads and request vectors for enriched products.
+Generate normalized embedding vectors and embedding text payloads for persisted products.
 
 ## When To Use
 
-After enrichment and before product/vector persistence.
+After categorization/enrichment and before product vector persistence.
 
 ## Inputs
 
-Products, enrichment map, category map, embedding provider, batch/concurrency settings.
+- `products`
+- `enrichments`
+- `categoriesBySlug`
+- `embeddingProvider`
+- `embeddingBatchSize` and `embeddingConcurrency`
+- `logger` and `stageTimingsMs`
 
 ## Outputs
 
-Vectors by SKU and embedding text by SKU.
+- `vectorsBySku` (dimension-normalized vectors)
+- `embeddedTextBySku` (text used for embedding)
 
 ## Steps
 
-1. Build embedding text per product.\n2. Batch embedding requests with configured concurrency.\n3. Normalize vectors to target dimensions.\n4. Return vectors and embedded text maps.
+1. Build embedding text for each product using category and attribute context.
+2. Call batched embedding generation with configured concurrency.
+3. Normalize vectors to `EMBEDDING_DIMENSIONS`.
+4. Log stage completion and embedded product count.
 
 ## Failure Signals
 
-Embedding provider timeout/retry exhaustion, vector dimension mismatch before normalization.
+- Embedding provider errors or retries exhausted.
+- Missing enrichment context resulting in reduced vector coverage.
+- Unexpected vector dimension mismatches.
 
 ## Related Files
 
-- 
-- 
+- `src/pipeline/run-stage-embedding.ts`
+- `src/pipeline/embedding.ts`
+- `src/pipeline/run-support.ts`
 
 ## Related Commands
 
-- 
-> experiments-w-rob@0.1.0 pipeline
-> tsx src/cli/pipeline.ts
+- `npm run pipeline`
+- `npm run canary`
 
 ## Last Verified
 
 - 2026-02-22
-

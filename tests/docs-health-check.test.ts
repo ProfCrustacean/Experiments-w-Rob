@@ -198,6 +198,23 @@ describe("docs health checks", () => {
     }
   });
 
+  it("flags polluted command or log output in cards", async () => {
+    const root = await createBaseFixture();
+    try {
+      await write(
+        root,
+        "docs/agents/module-cards/pipeline/run-stage-startup.md",
+        `${buildMicroDoc("pipeline-flow-owner")}\n> experiments-w-rob@0.1.0 pipeline\n`,
+      );
+      const summary = await runDocsChecks({ cwd: root });
+      expect(summary.findings.some((finding) => finding.code === "DOC_POLLUTED_CONTENT")).toBe(
+        true,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("flags missing module card when run-stage source exists", async () => {
     const root = await createBaseFixture();
     try {

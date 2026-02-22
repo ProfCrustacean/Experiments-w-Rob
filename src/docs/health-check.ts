@@ -223,6 +223,29 @@ function missingRequiredSections(markdown: string): string[] {
   return missing;
 }
 
+function detectDocPollution(markdown: string): string[] {
+  const signals: string[] = [];
+  if (/^>\s*experiments-w-rob@/m.test(markdown)) {
+    signals.push("shell_output");
+  }
+  if (/^\{"timestamp":"\d{4}-\d{2}-\d{2}T/m.test(markdown)) {
+    signals.push("json_log_output");
+  }
+  if (/^\[(sampling|embeddings|attribute_batches|attribute_second_pass)\]/m.test(markdown)) {
+    signals.push("runtime_progress_output");
+  }
+  if (/^\s*RUN\s+v\d+/m.test(markdown) || /^\s*Test Files\s+\d+/m.test(markdown)) {
+    signals.push("test_runner_output");
+  }
+  if (/^\s*-\s*$/m.test(markdown)) {
+    signals.push("empty_bullet_placeholder");
+  }
+  if (/\\n/.test(markdown)) {
+    signals.push("escaped_newline_literal");
+  }
+  return signals;
+}
+
 function isTaskCard(filePath: string): boolean {
   return filePath.startsWith("docs/agents/task-cards/");
 }
@@ -483,6 +506,16 @@ export async function runDocsChecks(options?: DocsCheckOptions): Promise<DocsChe
             "error",
             "MISSING_REQUIRED_SECTION",
             `${filePath} is missing required section(s): ${missingSections.join(", ")}.`,
+          );
+        }
+
+        const pollutionSignals = detectDocPollution(content);
+        if (pollutionSignals.length > 0) {
+          addFinding(
+            findings,
+            "error",
+            "DOC_POLLUTED_CONTENT",
+            `${filePath} contains command/log output artifacts: ${pollutionSignals.join(", ")}.`,
           );
         }
       }

@@ -4,40 +4,50 @@ Owner: pipeline-flow-owner
 
 ## Purpose
 
-Persist enriched products and vector rows with substage-level progress and timeouts.
+Persist enriched products and vectors with explicit product and vector upsert substages.
 
 ## When To Use
 
-After embedding vectors are ready.
+After embeddings are available and before reporting/artifact stages.
 
 ## Inputs
 
-Store id, run id, products, enrichments, categories, vectors, query/timeout settings.
+- Identity and run context: `storeId`, `runId`
+- `products`, `enrichments`, `categoriesBySlug`
+- `vectorsBySku`, `embeddedTextBySku`, `embeddingModel`
+- Timeouts and batch controls: `queryTimeoutMs`, `vectorBatchSize`, `persistStageTimeoutMs`
+- `logger` and `stageTimingsMs`
 
 ## Outputs
 
-Persisted product count, persisted vector row count, persisted vector batch count.
+- `persistedProductCount`
+- `vectorPersistedRows`
+- `vectorPersistedBatches`
 
 ## Steps
 
-1. Upsert product records in batches.\n2. Upsert vector records in batches.\n3. Log substage and stage completion metrics.
+1. Start product-persist stage and run products-upsert substage.
+2. Upsert products in batches and record progress logs.
+3. Run vectors-upsert substage with configured timeout and batch size.
+4. Persist vectors, capture batch-level progress, and log stage totals.
 
 ## Failure Signals
 
-DB timeout in products or vectors substage, partial persistence, repeated substage failures.
+- Product or vector upsert timeout.
+- Query timeout while persisting products or vectors.
+- Persisted counts below expected processed rows.
 
 ## Related Files
 
-- 
-- 
+- `src/pipeline/run-stage-product-persist.ts`
+- `src/pipeline/persist.ts`
+- `src/pipeline/run.ts`
 
 ## Related Commands
 
-- 
-> experiments-w-rob@0.1.0 pipeline
-> tsx src/cli/pipeline.ts
+- `npm run pipeline`
+- `npm run logs:run`
 
 ## Last Verified
 
 - 2026-02-22
-

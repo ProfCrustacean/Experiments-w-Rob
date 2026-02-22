@@ -4,42 +4,50 @@ Owner: pipeline-flow-owner
 
 ## Purpose
 
-Generate QA report rows and confusion hotlist artifact outputs.
+Build QA report outputs and confusion-hotlist outputs for a completed run.
 
 ## When To Use
 
-After product persistence and before quality metrics/finalization.
+After persistence and before metrics/artifact stages.
 
 ## Inputs
 
-Run id, output dir, products, enrichments, assignments map, QA sample size.
+- Run context: `runId`, `outputDir`, `qaSampleSize`
+- `products`, `enrichments`, `assignmentsBySku`
+- `logger` and `stageTimingsMs`
 
 ## Outputs
 
-QA rows/result metadata and confusion hotlist metadata/content paths.
+- `qaRows`
+- `qaResult` (sampled rows, totals, file metadata, CSV content)
+- `confusionHotlist` data and CSV file path
 
 ## Steps
 
-1. Build QA rows from products and enrichments.\n2. Write QA report CSV.\n3. Build confusion hotlist rows.\n4. Write confusion hotlist CSV.
+1. Build QA rows from products and enrichment outcomes.
+2. Write QA report CSV and log QA stage metrics.
+3. Build top confusion pairs (max 20).
+4. Write confusion-hotlist CSV and log completion metrics.
 
 ## Failure Signals
 
-QA report write failure, confusion hotlist file write failure, empty artifact outputs when data exists.
+- QA report write failure.
+- Confusion-hotlist generation/write failure.
+- Output directory write permission issues.
 
 ## Related Files
 
-- 
-- 
+- `src/pipeline/run-stage-reporting.ts`
+- `src/pipeline/qa-report.ts`
+- `src/pipeline/confusion-hotlist.ts`
+- `src/pipeline/variant-signature.ts`
 
 ## Related Commands
 
-- 
-> experiments-w-rob@0.1.0 pipeline
-> tsx src/cli/pipeline.ts\n- 
-> experiments-w-rob@0.1.0 qa:evaluate
-> tsx src/cli/qa-evaluate.ts
+- `npm run pipeline`
+- `npm run qa:evaluate`
+- `npm run report:download`
 
 ## Last Verified
 
 - 2026-02-22
-

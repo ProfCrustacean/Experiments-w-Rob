@@ -33,6 +33,8 @@ Task and module cards must include exactly these section headers:
 - `Related Commands`
 - `Last Verified`
 
+Task and module cards must not include raw shell output, runtime logs, or test runner output.
+
 ## Size Limits
 
 - Task cards: 140 lines max
@@ -50,4 +52,3 @@ Every task card, module card, and map doc must include an `Owner: <key>` line.
 - Required command: `npm run docs:check`
 - Scoreboard refresh: `npm run docs:scoreboard`
 - Docs gate remains blocking in CI.
-
